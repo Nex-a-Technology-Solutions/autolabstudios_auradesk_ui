@@ -3,6 +3,7 @@ import { Ticket, Project, User } from "@/api/entities"; // Added User entity imp
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useUser } from "../components/auth/UserProvider";
+import { useBranding } from "../components/branding/BrandingProvider"; // Added branding import
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,7 @@ export default function Tickets() {
   const [projectFilter, setProjectFilter] = useState("all");
   const [assignedFilter, setAssignedFilter] = useState("all"); // New state for assigned filter
   const { user } = useUser();
+  const { branding, theme } = useBranding(); // Added branding hook
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -201,11 +203,11 @@ export default function Tickets() {
   const pageDescription = user?.role === 'admin' ? "Manage and track all support tickets across all projects." : "Track your submitted support tickets across your projects.";
 
   return (
-    <div className="p-4 md:p-8 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+    <div className={`p-4 md:p-8 min-h-screen bg-gradient-to-br ${theme.bg}`}>
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-800 via-indigo-800 to-blue-800 bg-clip-text text-transparent leading-tight">
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-800 via-slate-700 to-slate-800 bg-clip-text text-transparent leading-tight">
               {pageTitle}
             </h1>
             <p className="text-slate-600 text-lg font-medium">
@@ -217,14 +219,14 @@ export default function Tickets() {
               <Button 
                 variant="outline"
                 onClick={() => setShowImportModal(true)}
-                className="border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl px-4 py-3 font-medium"
+                className={`${theme.text} border-slate-300 hover:bg-slate-50 hover:border-slate-400 px-6 py-3 rounded-2xl font-semibold tracking-tight transition-all duration-300 hover:scale-105`}
               >
                 <Mail className="w-5 h-5 mr-2" />
                 Import from Email
               </Button>
             )}
             <Link to={createPageUrl("CreateTicket")}>
-              <Button className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg rounded-xl px-6 py-3 font-semibold">
+              <Button className={`w-full sm:w-auto bg-gradient-to-r ${theme.primary} hover:${theme.primaryHover} text-white shadow-xl ${theme.shadow} px-8 py-3 rounded-2xl font-semibold tracking-tight transition-all duration-300 hover:scale-105`}>
                 <Plus className="w-5 h-5 mr-2" />
                 New Ticket
               </Button>
@@ -393,7 +395,7 @@ export default function Tickets() {
               Try adjusting your search or filter criteria, or create a new ticket
             </p>
             <Link to={createPageUrl("CreateTicket")}>
-              <Button className="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-lg rounded-xl px-6 py-3 font-semibold">
+              <Button className={`bg-gradient-to-r ${theme.primary} hover:${theme.primaryHover} text-white shadow-xl ${theme.shadow} px-8 py-3 rounded-2xl font-semibold tracking-tight transition-all duration-300 hover:scale-105`}>
                 <Plus className="w-5 h-5 mr-2" />
                 Create First Ticket
               </Button>

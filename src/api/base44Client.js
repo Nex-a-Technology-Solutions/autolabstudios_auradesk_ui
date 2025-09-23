@@ -488,5 +488,6 @@ export const base44 = new AuraDeskClient({
   requiresAuth: true
 });
 
+export const Invitations = base44.invitations;
 // Also export individual components for backwards compatibility
 export default base44;

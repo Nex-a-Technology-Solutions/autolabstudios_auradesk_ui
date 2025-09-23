@@ -109,7 +109,6 @@ export default function Dashboard() {
     setNotifications(prev => [...prev, { id: Date.now(), type, message }]);
   }, []);
 
-  // Function to remove a notification
   const removeNotification = useCallback((id) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
@@ -128,21 +127,22 @@ export default function Dashboard() {
         ticketData = await Ticket.list("-created_date");
         projectData = await Project.list();
       } else {
-        ticketData = await Ticket.filter({ client_email: user.email }, "-created_date");
+        ticketData = await Ticket.filter({ client__email: user.email }, "-created_date");
         if (user.projects && user.projects.length > 0) {
           const userProjectsData = await Promise.all(
             user.projects.map(projectId => Project.filter({ id: projectId }))
           );
-          // Flatten and extract results from paginated responses
-          projectData = userProjectsData.flat().map(response => response?.results || []).flat();
+
+          projectData = userProjectsData.flat().map(response => 
+            Array.isArray(response) ? response : (response?.results || response || [])
+          ).flat();
         } else {
           projectData = [];
         }
       }
 
-      // Extract the results arrays from paginated responses
-      setTickets(ticketData?.results || []);
-      setProjects(projectData?.results || []);
+      setTickets(Array.isArray(ticketData) ? ticketData : (ticketData?.results || []));
+      setProjects(Array.isArray(projectData) ? projectData : (projectData?.results || []));
       addNotification('info', 'Dashboard data loaded successfully.');
     } catch (error) {
       console.error("Error loading dashboard data:", error);

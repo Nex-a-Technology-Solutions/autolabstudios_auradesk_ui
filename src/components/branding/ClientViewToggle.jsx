@@ -85,13 +85,7 @@ export default function ClientViewToggle() {
         
         {/* User Info */}
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden">
-            <img
-              src={`https://avatar.vercel.sh/${user?.email}.svg`}
-              alt="User"
-              className="w-6 h-6 rounded-full"
-            />
-          </div>
+          <div className="w-3 h-3 rounded-full bg-gradient-to-br from-teal-300 to-teal-400"></div>
           <span className="text-xs text-slate-600 truncate max-w-20">
             {user?.full_name?.split(' ')[0] || 'Admin'}
           </span>

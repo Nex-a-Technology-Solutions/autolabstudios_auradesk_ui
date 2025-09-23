@@ -12,6 +12,14 @@ export default function AcceptInvitation() {
   const { token } = useParams();
   const navigate = useNavigate();
   
+  console.log('=== DEBUGGING INVITATION TOKEN ===');
+  console.log('Raw token from useParams:', token);
+  console.log('Token type:', typeof token);
+  console.log('All URL params:', useParams());
+  console.log('Current URL:', window.location.href);
+  console.log('Current pathname:', window.location.pathname);
+  console.log('================================');
+
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,9 +39,17 @@ export default function AcceptInvitation() {
   const loadInvitationDetails = async () => {
     try {
       setLoading(true);
+      
+      if (!token || token === 'undefined') {
+        throw new Error('No valid invitation token found in URL');
+      }
+      
+      console.log('Making API call with token:', token);
       const invitationData = await Invitations.getByToken(token);
       setInvitation(invitationData);
+      console.log('Invitation data loaded:', invitationData);
     } catch (err) {
+      console.error('Error loading invitation:', err);
       setError(err.message || 'Invalid or expired invitation link');
     } finally {
       setLoading(false);

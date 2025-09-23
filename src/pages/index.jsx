@@ -20,6 +20,8 @@ import Login from "./Login";
 
 import Register from './Register';
 
+import AcceptInvitation from "./AcceptInvitation.jsx";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -85,6 +87,8 @@ function PagesContent() {
                 <Route path="/Login" element={<Login />} />
 
                 <Route path="/Register" element={<Register />} />
+
+                <Route path="/invitation/:token" element={<AcceptInvitation />} />
                 
             </Routes>
         </Layout>

@@ -1,7 +1,5 @@
-
-
-import React from 'react';
-import { Link, useLocation } from "react-router-dom";
+import React, { useState } from 'react';
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   Home,
@@ -10,7 +8,9 @@ import {
   ShieldCheck,
   Users,
   MessageSquare,
-  Settings // Added Settings icon
+  Settings,
+  LogOut,
+  ChevronRight
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,6 +30,7 @@ import { UserProvider, useUser } from "../components/auth/UserProvider";
 import { BrandingProvider, useBranding } from "../components/branding/BrandingProvider";
 import { NotificationProvider } from "../components/notifications/NotificationProvider";
 import ClientViewToggle from "../components/branding/ClientViewToggle";
+import { User as UserAPI } from '@/api/entities';
 
 const baseNavItems = [
   {
@@ -82,13 +83,61 @@ const adminNavItems = [
   },
 ];
 
+// List of pages that should not show the sidebar
+const NO_SIDEBAR_PAGES = ['/login', '/register'];
 
 function AppLayout({ children }) {
   const location = useLocation();
-  const { user, isLoading } = useUser();
+  const { user, isLoading, logout: userProviderLogout } = useUser();
   const { branding, theme } = useBranding();
+  const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const navigationItems = user?.role === 'admin' ? adminNavItems : baseNavItems;
+  
+  // Check if current page should show sidebar
+  const shouldShowSidebar = !NO_SIDEBAR_PAGES.includes(location.pathname.toLowerCase());
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    
+    setIsLoggingOut(true);
+    
+    try {
+      console.log('User logout initiated from AppLayout');
+      
+      // Call Django API logout
+      await UserAPI.logout();
+      console.log('Django API logout successful');
+      
+      // Clear local authentication state
+      if (userProviderLogout) {
+        userProviderLogout();
+      } else {
+        // Fallback: clear localStorage manually
+        localStorage.removeItem('auth_token');
+      }
+      
+      console.log('Local state cleared, redirecting to login');
+      
+      // Navigate to login page
+      navigate('/login');
+      
+    } catch (error) {
+      console.error('Logout error:', error);
+      
+      // Even if API logout fails, clear local state and redirect for security
+      if (userProviderLogout) {
+        userProviderLogout();
+      } else {
+        localStorage.removeItem('auth_token');
+      }
+      
+      navigate('/login');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -101,6 +150,16 @@ function AppLayout({ children }) {
     );
   }
 
+  // If no sidebar should be shown, render children without sidebar layout
+  if (!shouldShowSidebar) {
+    return (
+      <div className={`min-h-screen bg-gradient-to-br ${theme.bg}`}>
+        {children}
+      </div>
+    );
+  }
+
+  // Regular layout with sidebar
   return (
     <div className={`min-h-screen flex w-full bg-gradient-to-br ${theme.bg}`}>
       <SidebarProvider>
@@ -127,7 +186,7 @@ function AppLayout({ children }) {
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton
                         asChild
-                        className={`hover:bg-opacity-10 hover:bg-current text-slate-700 transition-all duration-200 rounded-xl mb-1 font-medium ${
+                        className={`hover:bg-slate-100 hover:text-slate-800 text-slate-700 transition-all duration-200 rounded-xl mb-1 font-medium ${
                           (location.pathname === item.url || (item.title === "My Tickets" && location.pathname === createPageUrl("Tickets")))
                             ? `bg-gradient-to-r ${theme.primary} text-white font-semibold shadow-lg ${theme.shadow}`
                             : ''
@@ -146,18 +205,37 @@ function AppLayout({ children }) {
           </SidebarContent>
 
           <SidebarFooter className={`border-t border-slate-200/60 p-6 bg-gradient-to-r from-slate-50 ${theme.accent}`}>
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center overflow-hidden">
-                <img
-                  src={`https://avatar.vercel.sh/${user?.email}.svg`}
-                  alt="User"
-                  className="w-12 h-12 rounded-full"
-                />
+            <div className="space-y-4">
+              {/* User Info */}
+              <div className="flex items-center gap-4">
+                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-teal-300 to-teal-400"></div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-800 text-sm truncate tracking-tight">Authorized: {user?.full_name || user?.email}</p>
+                  <p className="text-xs text-slate-500 capitalize font-medium">Permission: {user?.role}</p>
+                  <p className="text-xs text-slate-500 capitalize font-medium">Autolab Integrations</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-800 text-sm truncate tracking-tight">{user?.full_name || user?.email}</p>
-                <p className="text-xs text-slate-500 capitalize font-medium">{user?.role}</p>
-              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50/70 rounded-xl transition-all duration-200 group border border-slate-200/80 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm"
+              >
+                <div className="flex items-center gap-3">
+                  {isLoggingOut ? (
+                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <LogOut className="w-4 h-4 transition-colors duration-200" />
+                  )}
+                  <span className="font-medium">
+                    {isLoggingOut ? 'Signing out...' : 'Sign out'}
+                  </span>
+                </div>
+                {!isLoggingOut && (
+                  <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-60 transition-opacity duration-200" />
+                )}
+              </button>
             </div>
           </SidebarFooter>
         </Sidebar>
@@ -182,7 +260,6 @@ function AppLayout({ children }) {
   );
 }
 
-
 export default function LayoutWrapper({ children }) {
   return (
     <UserProvider>
@@ -194,4 +271,3 @@ export default function LayoutWrapper({ children }) {
     </UserProvider>
   )
 }
-
