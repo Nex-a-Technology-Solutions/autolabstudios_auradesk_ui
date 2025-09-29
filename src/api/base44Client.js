@@ -1,5 +1,5 @@
 class DjangoApiClient {
-  constructor(baseURL = 'http://localhost:8000', options = {}) {
+  constructor(baseURL = 'https://autolabstudios-auradesk-backend-api.onrender.com', options = {}) {
     this.baseURL = baseURL;
     this.requiresAuth = options.requiresAuth || true;
     this.token = localStorage.getItem('auth_token');
@@ -397,7 +397,7 @@ class CoreIntegrations {
 // Main client class that mimics Base44 structure
 class AuraDeskClient {
   constructor(options = {}) {
-    this.apiClient = new DjangoApiClient('http://localhost:8000', options);
+    this.apiClient = new DjangoApiClient('https://autolabstudios-auradesk-backend-api.onrender.com', options);
     
     // Initialize entities
     this.entities = {

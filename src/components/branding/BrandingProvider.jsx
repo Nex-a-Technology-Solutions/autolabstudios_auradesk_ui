@@ -14,8 +14,8 @@ export const useBranding = () => {
 
 export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState({
-    appName: 'astudios auradesk',
-    displayName: 'astudios auradesk',
+    appName: 'Scribe Desk',
+    displayName: 'Scribe Desk',
     primaryColor: 'purple',
     logoUrl: null
   });
@@ -39,8 +39,8 @@ export function BrandingProvider({ children }) {
     if (!projectId) {
       // Reset to default branding
       setBranding({
-        appName: 'astudios auradesk',
-        displayName: 'astudios auradesk',
+        appName: 'Scribe Desk',
+        displayName: 'Scribe Desk',
         primaryColor: 'purple',
         logoUrl: null
       });
@@ -72,8 +72,8 @@ export function BrandingProvider({ children }) {
         await loadAllProjects();
         // Admin starts with default branding
         setBranding({
-          appName: 'astudios auradesk',
-          displayName: 'astudios auradesk',
+          appName: 'Scribe Desk',
+          displayName: 'Scribe Desk',
           primaryColor: 'purple',
           logoUrl: null
         });

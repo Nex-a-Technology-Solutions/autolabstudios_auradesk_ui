@@ -183,7 +183,7 @@ export default function Dashboard() {
   const stats = getStats();
 
   // Dynamic content based on user role
-  const pageTitle = user?.role === 'admin' ? "Welcome back to aura dashboard" : branding.displayName;
+  const pageTitle = user?.role === 'admin' ? "Welcome back to Scribe Desk" : branding.displayName;
   const pageDescription = user?.role === 'admin'
     ? 'Complete overview of support activity across all projects and clients.'
     : 'Welcome to your support portal. View your tickets and get help when you need it.';
