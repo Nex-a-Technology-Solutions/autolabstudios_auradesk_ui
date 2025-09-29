@@ -55,26 +55,50 @@ const Register = ({ onRegisterSuccess }) => {
     setSuccess('');
 
     try {
-      // Create user account via API
+      const requestBody = {
+        email: formData.email,
+        full_name: formData.full_name,
+        password: formData.password,
+        role: 'user'
+      };
+
+      console.log('=== REGISTRATION REQUEST ===');
+      console.log('Request body:', requestBody);
+      
       const response = await fetch('https://autolabstudios-auradesk-backend-api.onrender.com/api/auth/register/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          email: formData.email,
-          full_name: formData.full_name,
-          password: formData.password,
-          role: 'user' // Default role for self-registration
-        })
+        body: JSON.stringify(requestBody)
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+      const contentType = response.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+
+      // Get the raw response text first
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Registration failed (${response.status})`);
+        // Try to parse as JSON
+        let errorMessage;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || `Registration failed (${response.status})`;
+        } catch (parseError) {
+          console.error('Failed to parse error response as JSON:', parseError);
+          errorMessage = `Registration failed (${response.status}): ${responseText.substring(0, 100)}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
+      // Parse success response
+      const result = JSON.parse(responseText);
+      console.log('Success response:', result);
       
       setSuccess('Account created successfully! You can now log in.');
       
