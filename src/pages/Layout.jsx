@@ -10,7 +10,8 @@ import {
   MessageSquare,
   Settings,
   LogOut,
-  ChevronRight
+  ChevronRight,
+  Clock, // <-- added icon import
 } from "lucide-react";
 import {
   Sidebar,
@@ -47,6 +48,11 @@ const baseNavItems = [
     title: "Create Ticket",
     url: createPageUrl("CreateTicket"),
     icon: Plus,
+  },
+  {
+    title: "Toggl Dashboard",               // <-- new nav item
+    url: createPageUrl("TogglDashboard"),
+    icon: Clock,
   },
 ];
 
