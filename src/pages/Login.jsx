@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
 import { User } from '../api/entities';
-import { Eye, EyeOff, Mail, Lock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useNavigate } from "react-router-dom";
 
 const Login = ({ onLoginSuccess }) => {
-  const navigate = useNavigate(); // Move this to the top level
+  const navigate = useNavigate();
   
+  const [step, setStep] = useState('credentials');
   const [formData, setFormData] = useState({
     email: '',
     password: ''
+  });
+  const [otpData, setOtpData] = useState({
+    sessionId: '',
+    otp: ['', '', '', '', '', '']
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,6 +26,25 @@ const Login = ({ onLoginSuccess }) => {
       [e.target.name]: e.target.value
     });
     if (error) setError('');
+  };
+
+  const handleOtpChange = (index, value) => {
+    if (value.length > 1) value = value.slice(0, 1);
+    if (!/^\d*$/.test(value)) return;
+
+    const newOtp = [...otpData.otp];
+    newOtp[index] = value;
+    setOtpData({ ...otpData, otp: newOtp });
+
+    if (value && index < 5) {
+      document.getElementById(`otp-${index + 1}`)?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otpData.otp[index] && index > 0) {
+      document.getElementById(`otp-${index - 1}`)?.focus();
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -36,15 +60,20 @@ const Login = ({ onLoginSuccess }) => {
       
       console.log('Login result:', result);
       
-      setSuccess(`Welcome back, ${result.user.full_name}!`);
-      
-      // Add a small delay to show success message before redirecting
-      setTimeout(() => {
-        if (onLoginSuccess) {
-          onLoginSuccess(result.user, result.access);
-        }
-        navigate("/dashboard");
-      }, 1000);
+      if (result.requires_verification) {
+        setOtpData({ ...otpData, sessionId: result.email || formData.email });
+        setSuccess('OTP sent to your email!');
+        setStep('otp');
+      } else {
+        setSuccess(`Welcome back, ${result.user.full_name}!`);
+        
+        setTimeout(() => {
+          if (onLoginSuccess) {
+            onLoginSuccess(result.user, result.access);
+          }
+          navigate("/dashboard");
+        }, 1000);
+      }
       
     } catch (error) {
       console.error('Login error:', error);
@@ -54,30 +83,170 @@ const Login = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleTestLogin = () => {
-    setFormData({
-      email: 'admin@auradesk.com',
-      password: 'password123'
-    });
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    const otpCode = otpData.otp.join('');
+    if (otpCode.length !== 6) {
+      setError('Please enter all 6 digits');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const result = await User.verifyOTP(otpData.sessionId, otpCode, 'email');
+      
+      console.log('OTP verification result:', result);
+      
+      setSuccess(`Welcome back, ${result.user.full_name}!`);
+      
+      setTimeout(() => {
+        if (onLoginSuccess) {
+          onLoginSuccess(result.user, result.access);
+        }
+        navigate("/dashboard");
+      }, 1000);
+      
+    } catch (error) {
+      console.error('OTP verification error:', error);
+      setError(error.message || 'Invalid OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      await User.resendOTP(formData.email, 'email');
+      setOtpData({ ...otpData, otp: ['', '', '', '', '', ''] });
+      setSuccess('New OTP sent to your email!');
+    } catch (error) {
+      setError(error.message || 'Failed to resend OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackToCredentials = () => {
+    setStep('credentials');
+    setOtpData({ sessionId: '', otp: ['', '', '', '', '', ''] });
+    setError('');
+    setSuccess('');
   };
 
   const handleSocialLogin = (provider) => {
     console.log(`${provider} login clicked`);
-    // In a real app, this would redirect to OAuth provider
   };
+
+  if (step === 'otp') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          
+          <div className="text-center mb-4">
+            <h4 className="text-lg font-medium text-black mb-7">
+              autolab auradesk
+            </h4>
+          </div>
+
+          <div className="text-center mb-8">
+            <h4 className="text-lg font-medium text-black mb-2">
+              Verify your email
+            </h4>
+            <p className="text-sm text-gray-600">
+              Enter the 6-digit code sent to<br />
+              <span className="font-medium">{formData.email}</span>
+            </p>
+          </div>
+
+          <div className="bg-gray-50 rounded-3xl p-8">
+            
+            <form onSubmit={handleVerifyOtp} className="space-y-6">
+              
+              <div className="flex justify-center gap-3 mb-6">
+                {otpData.otp.map((digit, index) => (
+                  <input
+                    key={index}
+                    id={`otp-${index}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength="1"
+                    value={digit}
+                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                    className="w-12 h-14 text-center text-xl font-semibold bg-white border-2 border-gray-300 rounded-xl transition-all duration-300 focus:outline-none focus:border-green-400 focus:shadow-lg focus:shadow-green-400/20"
+                  />
+                ))}
+              </div>
+
+              {error && (
+                <div className="text-red-600 text-xs text-center mb-4 px-4 py-2 bg-red-50/80 border border-red-200/50 rounded-full">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="text-green-600 text-xs text-center mb-4 px-4 py-2 bg-green-50/80 border border-green-200/50 rounded-full">
+                  {success}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || otpData.otp.some(d => !d)}
+                className="w-full py-3.5 bg-gray-800 text-white rounded-full text-sm font-light transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-purple-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Verifying...
+                  </div>
+                ) : (
+                  'Verify & Sign in'
+                )}
+              </button>
+
+              <div className="text-center mt-4">
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={loading}
+                  className="text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                >
+                  Didn't receive code? <span className="font-medium text-purple-500 hover:text-green-400">Resend</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleBackToCredentials}
+                className="flex items-center justify-center gap-2 w-full mt-4 text-sm text-gray-600 hover:text-gray-800"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to login
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md relative">
         
-        {/* Logo */}
         <div className="text-center mb-4">
           <h4 className="text-lg font-medium text-black mb-7 inline-block">
             autolab auradesk
           </h4>
         </div>
 
-        {/* Header */}
         <div className="text-center mb-8">
           <h4 className="text-lg font-medium text-black mb-2">
             Sign in
@@ -87,12 +256,10 @@ const Login = ({ onLoginSuccess }) => {
           </p>
         </div>
 
-        {/* Main Form Card */}
         <div className="bg-gray-50 rounded-3xl p-8 flex flex-col items-center justify-center">
           
           <form onSubmit={handleSubmit} className="w-full space-y-6">
             
-            {/* Email Input */}
             <div className="relative mb-6">
               <input
                 type="email"
@@ -108,7 +275,6 @@ const Login = ({ onLoginSuccess }) => {
               </label>
             </div>
 
-            {/* Password Input */}
             <div className="relative mb-6">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -131,14 +297,6 @@ const Login = ({ onLoginSuccess }) => {
               </button>
             </div>
 
-            {/* Loading Indicator */}
-            {loading && (
-              <div className="flex justify-center mb-6">
-                <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
-              </div>
-            )}
-
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
@@ -154,7 +312,6 @@ const Login = ({ onLoginSuccess }) => {
               )}
             </button>
 
-            {/* Messages */}
             {error && (
               <div className="text-red-600 text-xs text-center my-4 px-2 py-2 bg-red-50/80 border border-red-200/50 rounded-full font-light">
                 {error}
@@ -167,7 +324,6 @@ const Login = ({ onLoginSuccess }) => {
               </div>
             )}
 
-            {/* Sign Up Link */}
             <p className="text-center text-sm text-black font-medium mb-5">
               Don't have an account?{' '}
               <a href="/register" className="relative text-purple-500 no-underline font-medium transition-colors hover:text-green-300 hover:after:w-full after:content-[''] after:absolute after:left-0 after:-bottom-0.5 after:w-0 after:h-0.5 after:bg-green-400 after:transition-all after:duration-300">
@@ -175,7 +331,6 @@ const Login = ({ onLoginSuccess }) => {
               </a>
             </p>
 
-            {/* Separator */}
             <div className="flex items-center my-5 mb-6">
               <div className="flex-1 h-px bg-gray-300"></div>
               <span className="px-4 text-gray-400 text-sm">or</span>
@@ -183,10 +338,8 @@ const Login = ({ onLoginSuccess }) => {
             </div>
           </form>
 
-          {/* Social Login Buttons */}
           <div className="flex flex-col items-center justify-center gap-4 w-full">
             
-            {/* Google Login */}
             <button
               onClick={() => handleSocialLogin('Google')}
               className="w-80 max-w-full text-black border-2 border-gray-300 rounded-full text-sm font-medium cursor-pointer transition-all duration-300 flex items-start justify-start gap-2 no-underline px-6 py-3.5 hover:bg-gray-100 hover:border-gray-300"
@@ -200,7 +353,6 @@ const Login = ({ onLoginSuccess }) => {
               Continue with Google
             </button>
 
-            {/* Microsoft Login */}
             <button
               onClick={() => handleSocialLogin('Microsoft')}
               className="w-80 max-w-full text-black border-2 border-gray-300 rounded-full text-sm font-medium cursor-pointer transition-all duration-300 flex items-start justify-start gap-2 no-underline px-6 py-3.5 hover:bg-gray-100 hover:border-gray-300"
@@ -214,7 +366,6 @@ const Login = ({ onLoginSuccess }) => {
               Continue with Microsoft Account
             </button>
               
-            {/* Apple Login */}
             <button
               onClick={() => handleSocialLogin('Apple')}
               className="w-80 max-w-full text-black border-2 border-gray-300 rounded-full text-sm font-medium cursor-pointer transition-all duration-300 flex items-start justify-start gap-2 no-underline px-6 py-3.5 hover:bg-gray-100 hover:border-gray-300"
@@ -225,7 +376,6 @@ const Login = ({ onLoginSuccess }) => {
               Continue with Apple
             </button>
 
-            {/* Phone Login */}
             <button
               onClick={() => handleSocialLogin('Phone')}
               className="w-80 max-w-full text-black border-2 border-gray-300 rounded-full text-sm font-medium cursor-pointer transition-all duration-300 flex items-start justify-start gap-2 no-underline px-6 py-3.5 hover:bg-gray-100 hover:border-gray-300"
@@ -237,22 +387,11 @@ const Login = ({ onLoginSuccess }) => {
             </button>
           </div>
 
-          {/* Footer Links */}
           <div className="text-center mt-8 text-sm text-gray-600 font-light">
             <a href="/terms-of-use" className="text-gray-600 underline mx-2 hover:text-green-400">Terms of Use</a>
             <span className="text-gray-500 mx-1">|</span>
             <a href="/privacy-policy" className="text-gray-600 underline mx-2 hover:text-green-400">Privacy Policy</a>
           </div>
-        </div>
-
-        {/* Test Credentials */}
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={handleTestLogin}
-            className="text-sm font-semibold text-gray-600 hover:text-gray-800 transition-colors"
-          >
-          </button>
         </div>
       </div>
     </div>

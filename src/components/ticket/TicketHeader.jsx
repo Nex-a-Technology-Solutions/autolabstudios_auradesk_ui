@@ -83,7 +83,7 @@ export default function TicketHeader({
       let adminUsers = [];
       
       try {
-        const staffResponse = await User.filter({ role: 'admin' });
+        const staffResponse = await User.filter({ role: 'user' });
         console.log("Staff response:", staffResponse);
         adminUsers = extractArrayFromResponse(staffResponse);
       } catch (filterError) {

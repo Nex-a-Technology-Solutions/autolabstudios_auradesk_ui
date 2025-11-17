@@ -203,41 +203,40 @@ function AppLayout({ children }) {
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
-
-          <SidebarFooter className={`border-t border-slate-200/60 p-6 bg-gradient-to-r from-slate-50 ${theme.accent}`}>
-            <div className="space-y-4">
-              {/* User Info */}
+            <SidebarFooter className={`border-t border-slate-200/60 p-6 bg-gradient-to-r from-slate-50 ${theme.accent}`}>
               <div className="flex items-center gap-4">
-                <div className="w-4 h-4 rounded-full bg-gradient-to-br from-teal-300 to-teal-400"></div>
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal flex items-center justify-center overflow-hidden">
+                  <img
+                    src={`https://avatar.vercel.sh/${user?.email}.svg`}
+                    alt="User"
+                    className="w-8 h-8 rounded-full"
+                  />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-800 text-sm truncate tracking-tight">Authorized: {user?.full_name || user?.email}</p>
-                  <p className="text-xs text-slate-500 capitalize font-medium">Permission: {user?.role}</p>
-                  <p className="text-xs text-slate-500 capitalize font-medium">Autolab Integrations</p>
+                  <p className="font-semibold text-slate-800 text-sm truncate tracking-tight">{user?.full_name || user?.email}</p>
+                  <p className="text-xs text-slate-500 capitalize font-medium">{user?.role}</p>
                 </div>
               </div>
 
               {/* Logout Button */}
               <button
                 onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50/70 rounded-xl transition-all duration-200 group border border-slate-200/80 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed backdrop-blur-sm"
+                className="mt-4 w-full text-sm font-medium text-slate-600 hover:text-red-600 flex items-center justify-center gap-2 transition-colors"
               >
-                <div className="flex items-center gap-3">
-                  {isLoggingOut ? (
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <LogOut className="w-4 h-4 transition-colors duration-200" />
-                  )}
-                  <span className="font-medium">
-                    {isLoggingOut ? 'Signing out...' : 'Sign out'}
-                  </span>
-                </div>
-                {!isLoggingOut && (
-                  <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-60 transition-opacity duration-200" />
-                )}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.6}
+                  stroke="currentColor"
+                  className="w-4 h-4"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6A2.25 2.25 0 005.25 5.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                </svg>
+                Logout
               </button>
-            </div>
-          </SidebarFooter>
+            </SidebarFooter>
+
         </Sidebar>
 
         <main className="flex-1 flex flex-col">

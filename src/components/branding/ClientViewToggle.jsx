@@ -80,7 +80,6 @@ export default function ClientViewToggle() {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Eye className="w-4 h-4 text-slate-600" />
-          <span className="text-sm font-semibold text-slate-700">Admin Panel</span>
         </div>
         
         {/* User Info */}
@@ -96,7 +95,6 @@ export default function ClientViewToggle() {
         {/* Project View Toggle */}
         <div>
           <label className="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1 block">
-            Preview as Client
           </label>
           <Select value={currentProjectId || 'default'} onValueChange={handleProjectChange}>
             <SelectTrigger className="w-full bg-white border-slate-300 text-slate-900 rounded-xl">
