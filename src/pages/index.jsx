@@ -22,6 +22,8 @@ import Register from './Register';
 
 import AcceptInvitation from "./AcceptInvitation.jsx";
 
+import TimeTracker from "./TimeTrackerPage"; // Import TimeTracker
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -41,6 +43,8 @@ const PAGES = {
     DataStructure: DataStructure,
     
     Integrations: Integrations,
+    
+    TimeTracker: TimeTracker, // Add TimeTracker to PAGES
     
 }
 
@@ -83,6 +87,8 @@ function PagesContent() {
                 <Route path="/DataStructure" element={<DataStructure />} />
                 
                 <Route path="/Integrations" element={<Integrations />} />
+
+                <Route path="/TimeTracker" element={<TimeTracker />} /> {/* Add TimeTracker route */}
 
                 <Route path="/Login" element={<Login />} />
 

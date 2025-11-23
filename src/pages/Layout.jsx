@@ -7,10 +7,9 @@ import {
   Plus,
   ShieldCheck,
   Users,
-  MessageSquare,
   Settings,
   LogOut,
-  ChevronRight
+  Clock // Add Clock icon for TimeTracker
 } from "lucide-react";
 import {
   Sidebar,
@@ -48,6 +47,11 @@ const baseNavItems = [
     url: createPageUrl("CreateTicket"),
     icon: Plus,
   },
+  {
+    title: "Time Tracker", // Add Time Tracker to base navigation
+    url: createPageUrl("TimeTracker"),
+    icon: Clock,
+  },
 ];
 
 const adminNavItems = [
@@ -65,6 +69,11 @@ const adminNavItems = [
     title: "Create Ticket",
     url: createPageUrl("CreateTicket"),
     icon: Plus,
+  },
+  {
+    title: "Time Tracker", // Add Time Tracker to admin navigation
+    url: createPageUrl("TimeTracker"),
+    icon: Clock,
   },
   {
     title: "Admin Panel",
