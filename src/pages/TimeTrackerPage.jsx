@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, Play, StopCircle, Trash2, Calendar, Timer,
-  BarChart2, Grid, Download
+  BarChart2, Grid, Download, AlertTriangle, Target
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
@@ -30,6 +30,19 @@ export default function TimeTrackerPage() {
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [activeTab, setActiveTab] = useState('entries');
+// ADD: filter & edit state
+  const [filterText, setFilterText] = useState('');
+  const [filterTicketId, setFilterTicketId] = useState('');
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editingTime, setEditingTime] = useState('');
+  const [editingDescription, setEditingDescription] = useState('');
+  const [editError, setEditError] = useState('');
+
+  // ADD: Budget state
+  const [ticketBudgets, setTicketBudgets] = useState({}); // { ticketId: budgetHours }
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [budgetTicketId, setBudgetTicketId] = useState('');
+  const [budgetHours, setBudgetHours] = useState('');
 
   // Load tickets
   useEffect(() => {
@@ -133,6 +146,7 @@ export default function TimeTrackerPage() {
     
     const entry = {
       id: crypto.randomUUID(),
+      
       ticketId: String(selectedTicket),
       ticketTitle: ticketObj?.title || `Ticket ${selectedTicket}`,
       description: description || 'Time entry',
@@ -152,6 +166,136 @@ export default function TimeTrackerPage() {
 
   const handleDeleteEntry = (id) => {
     setTimeEntries(prev => prev.filter(e => e.id !== id));
+  };
+// ADD: start / cancel / save edit helpers
+  const startEditEntry = (entry) => {
+    setEditingEntryId(entry.id);
+    setEditingTime(entry.timeFormatted || formatTimer(Math.round(entry.timeSpent * 3600)));
+    setEditingDescription(entry.description);
+    setEditError('');
+  };
+
+  const cancelEditEntry = () => {
+    setEditingEntryId(null);
+    setEditingTime('');
+    setEditingDescription('');
+    setEditError('');
+  };
+
+  const saveEditEntry = () => {
+    if (!editingEntryId) return;
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(editingTime)) {
+      setEditError('Invalid time format (HH:MM:SS)');
+      return;
+    }
+    const newHours = parseFloat(convertToHours(editingTime));
+    setTimeEntries(prev =>
+      prev.map(e =>
+        e.id === editingEntryId
+          ? { ...e, timeFormatted: editingTime, timeSpent: newHours, description: editingDescription }
+          : e
+      )
+    );
+    cancelEditEntry();
+  };
+
+  // Load budgets from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('auradesk_ticket_budgets_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setTicketBudgets(parsed);
+      }
+    } catch (e) {
+      console.warn('Failed to parse ticket budgets', e);
+    }
+  }, []);
+
+  // Persist budgets
+  useEffect(() => {
+    try {
+      localStorage.setItem('auradesk_ticket_budgets_v1', JSON.stringify(ticketBudgets));
+    } catch (e) {
+      console.warn('Failed to persist ticket budgets', e);
+    }
+  }, [ticketBudgets]);
+
+  // ADD: Calculate ticket usage and warnings
+  const ticketStats = useMemo(() => {
+    const stats = {};
+    timeEntries.forEach(e => {
+      if (!stats[e.ticketId]) {
+        stats[e.ticketId] = {
+          ticketId: e.ticketId,
+          ticketTitle: e.ticketTitle,
+          totalHours: 0,
+          entries: []
+        };
+      }
+      stats[e.ticketId].totalHours += e.timeSpent;
+      stats[e.ticketId].entries.push(e);
+    });
+
+    // Add budget info
+    Object.keys(stats).forEach(ticketId => {
+      const budget = ticketBudgets[ticketId];
+      if (budget) {
+        stats[ticketId].budget = parseFloat(budget);
+        stats[ticketId].percentage = (stats[ticketId].totalHours / parseFloat(budget)) * 100;
+        stats[ticketId].remaining = parseFloat(budget) - stats[ticketId].totalHours;
+        stats[ticketId].isOverBudget = stats[ticketId].totalHours > parseFloat(budget);
+        stats[ticketId].isNearLimit = stats[ticketId].percentage >= 80 && !stats[ticketId].isOverBudget;
+      }
+    });
+
+    return stats;
+  }, [timeEntries, ticketBudgets]);
+
+  const handleSetBudget = () => {
+    if (!budgetTicketId || !budgetHours) return;
+    setTicketBudgets(prev => ({
+      ...prev,
+      [budgetTicketId]: budgetHours
+    }));
+    setShowBudgetModal(false);
+    setBudgetTicketId('');
+    setBudgetHours('');
+  };
+
+  const handleRemoveBudget = (ticketId) => {
+    setTicketBudgets(prev => {
+      const updated = { ...prev };
+      delete updated[ticketId];
+      return updated;
+    });
+  };
+
+  const getBudgetWarning = (ticketId) => {
+    const stat = ticketStats[ticketId];
+    if (!stat?.budget) return null;
+    
+    if (stat.isOverBudget) {
+      return {
+        type: 'danger',
+        message: `Over budget by ${Math.abs(stat.remaining).toFixed(2)}h`,
+        color: 'text-red-600 bg-red-50 border-red-200'
+      };
+    }
+    
+    if (stat.isNearLimit) {
+      return {
+        type: 'warning',
+        message: `${stat.percentage.toFixed(0)}% of budget used`,
+        color: 'text-amber-600 bg-amber-50 border-amber-200'
+      };
+    }
+    
+    return {
+      type: 'info',
+      message: `${stat.remaining.toFixed(2)}h remaining`,
+      color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
+    };
   };
 
   const getTotalHours = () =>
@@ -240,6 +384,19 @@ export default function TimeTrackerPage() {
     () => ticketHours.slice().sort((a,b)=>b.hours - a.hours).slice(0,5),
     [ticketHours]
   );
+// ADD: filtered entries
+  const filteredEntries = useMemo(() => {
+    return timeEntries.filter(e => {
+      const txt = filterText.trim().toLowerCase();
+      const matchesText =
+        !txt ||
+        e.ticketTitle.toLowerCase().includes(txt) ||
+        e.description.toLowerCase().includes(txt);
+      const matchesTicket = !filterTicketId || e.ticketId === filterTicketId;
+      return matchesText && matchesTicket;
+    });
+  }, [timeEntries, filterText, filterTicketId]);
+
 
   const avgHoursPerLoggedDay = useMemo(() => {
     if (!dayHoursChart.length) return 0;
@@ -285,7 +442,8 @@ export default function TimeTrackerPage() {
           {[
             { id:'entries', label:'Entries', icon:Clock },
             { id:'calendar', label:'Calendar', icon:Grid },
-            { id:'analytics', label:'Analytics', icon:BarChart2 }
+            { id:'analytics', label:'Analytics', icon:BarChart2 },
+            { id:'budgets', label:'Budgets', icon:Target }
           ].map(t => (
             <button
               key={t.id}
@@ -305,6 +463,31 @@ export default function TimeTrackerPage() {
         {/* Entries */}
         {activeTab==='entries' && (
           <>
+            {/* Budget Warning Banner */}
+            {Object.keys(ticketStats).some(id => ticketStats[id].isOverBudget || ticketStats[id].isNearLimit) && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-bold text-amber-900 mb-2">Budget Alerts</h3>
+                    <div className="space-y-1 text-sm text-amber-800">
+                      {Object.values(ticketStats)
+                        .filter(s => s.isOverBudget || s.isNearLimit)
+                        .map(stat => (
+                          <div key={stat.ticketId}>
+                            <strong>#{stat.ticketId}</strong> {stat.ticketTitle}: {' '}
+                            {stat.isOverBudget 
+                              ? `Over budget by ${Math.abs(stat.remaining).toFixed(2)}h`
+                              : `${stat.percentage.toFixed(0)}% used (${stat.remaining.toFixed(2)}h remaining)`
+                            }
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg shadow-slate-200/30 p-8">
               <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-3">
                 <Plus className="w-5 h-5" /> Log Time Entry
@@ -319,12 +502,25 @@ export default function TimeTrackerPage() {
                     className="w-full border border-slate-200 rounded-xl p-3 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
                   >
                     <option value="">Choose a ticket...</option>
-                    {tickets.map(t => (
-                      <option key={t.id} value={t.id}>
-                        #{t.id} - {t.title}
-                      </option>
-                    ))}
+                    {tickets.map(t => {
+                      const stat = ticketStats[String(t.id)];
+                      const hasBudget = ticketBudgets[String(t.id)];
+                      return (
+                        <option key={t.id} value={t.id}>
+                          #{t.id} - {t.title}
+                          {hasBudget && stat ? ` (${stat.totalHours.toFixed(2)}/${ticketBudgets[String(t.id)]}h)` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
+                  {selectedTicket && getBudgetWarning(String(selectedTicket)) && (
+                    <div className={`mt-2 px-3 py-2 rounded-lg border text-xs font-medium ${getBudgetWarning(String(selectedTicket)).color}`}>
+                      <div className="flex items-center gap-2">
+                        {getBudgetWarning(String(selectedTicket)).type === 'danger' && <AlertTriangle className="w-3 h-3" />}
+                        {getBudgetWarning(String(selectedTicket)).message}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {selectedTicket && (
@@ -409,43 +605,139 @@ export default function TimeTrackerPage() {
                   CSV
                 </button>
               </div>
-              {timeEntries.length === 0 ? (
+
+              {/* Filters */}
+              <div className="flex flex-wrap gap-3 mb-5">
+                <input
+                  type="text"
+                  placeholder="Search title or description..."
+                  value={filterText}
+                  onChange={e=>setFilterText(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                  value={filterTicketId}
+                  onChange={e=>setFilterTicketId(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">All Tickets</option>
+                  {tickets.map(t => (
+                    <option key={t.id} value={String(t.id)}>#{t.id}</option>
+                  ))}
+                </select>
+                {(filterText || filterTicketId) && (
+                  <button
+                    onClick={() => { setFilterText(''); setFilterTicketId(''); }}
+                    className="px-3 py-2 text-sm rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {filteredEntries.length === 0 ? (
                 <div className="text-center py-12">
                   <Clock className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                  <p className="text-slate-500 font-medium">No time entries yet.</p>
+                  <p className="text-slate-500 font-medium">
+                    {timeEntries.length === 0 ? 'No time entries yet.' : 'No entries match the filters.'}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {timeEntries.map(entry => (
+                  {filteredEntries.map(entry => (
                     <div
                       key={entry.id}
-                      className="flex items-center justify-between p-5 rounded-2xl border border-slate-200/60 bg-gradient-to-r from-slate-50/50 to-white hover:shadow-md transition-all"
+                      className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5 rounded-2xl border border-slate-200/60 bg-gradient-to-r from-slate-50/50 to-white hover:shadow-md transition-all"
                     >
-                      <div className="flex-1">
+                      <div className="flex-1 w-full">
                         <div className="flex items-center gap-3 mb-2">
                           <span className="text-sm font-bold text-slate-800">#{entry.ticketId}</span>
                           <span className="text-slate-600 font-semibold truncate max-w-xs">
                             {entry.ticketTitle}
                           </span>
+                          {getBudgetWarning(entry.ticketId) && (
+                            <span className={`text-[10px] px-2 py-1 rounded-lg border font-medium ${getBudgetWarning(entry.ticketId).color}`}>
+                              {getBudgetWarning(entry.ticketId).type === 'danger' ? '⚠️' : ''}
+                              {getBudgetWarning(entry.ticketId).type === 'warning' ? '⚡' : ''}
+                              {getBudgetWarning(entry.ticketId).message}
+                            </span>
+                          )}
                         </div>
-                        <p className="text-sm text-slate-500 mb-2 line-clamp-2">
-                          {entry.description}
-                        </p>
-                        <div className="flex items-center gap-4 text-xs text-slate-400">
+
+                        {editingEntryId === entry.id ? (
+                          <>
+                            <textarea
+                              value={editingDescription}
+                              onChange={e=>setEditingDescription(e.target.value)}
+                              rows="2"
+                              className="w-full border border-slate-300 rounded-xl p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </>
+                        ) : (
+                          <p className="text-sm text-slate-500 mb-2 line-clamp-2">
+                            {entry.description}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
                             {new Date(entry.date).toLocaleDateString()}
                           </span>
                           <span>{entry.user}</span>
+                          {editingEntryId === entry.id && editError && (
+                            <span className="text-red-600 font-medium">{editError}</span>
+                          )}
                         </div>
                       </div>
+
                       <div className="flex items-center gap-4">
-                        <div className="flex flex-col items-end">
-                          <div className={`px-4 py-2 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold font-mono`}>
-                            {entry.timeFormatted || formatTimer(Math.round(entry.timeSpent * 3600))}
+                        {editingEntryId === entry.id ? (
+                          <div className="flex flex-col items-end">
+                            <input
+                              type="text"
+                              value={editingTime}
+                              onChange={e=>setEditingTime(e.target.value)}
+                              placeholder="HH:MM:SS"
+                              className="px-3 py-2 rounded-xl border border-slate-300 font-mono text-sm w-28 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <span className="text-xs text-slate-500 mt-1">
+                              {convertToHours(editingTime)}h
+                            </span>
                           </div>
-                          <span className="text-xs text-slate-500 mt-1">{entry.timeSpent}h</span>
-                        </div>
+                        ) : (
+                          <div className="flex flex-col items-end">
+                            <div className={`px-4 py-2 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold font-mono`}>
+                              {entry.timeFormatted || formatTimer(Math.round(entry.timeSpent * 3600))}
+                            </div>
+                            <span className="text-xs text-slate-500 mt-1">{entry.timeSpent}h</span>
+                          </div>
+                        )}
+
+                        {editingEntryId === entry.id ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={saveEditEntry}
+                              className="px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={cancelEditEntry}
+                              className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={()=>startEditEntry(entry)}
+                            className="px-3 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          >
+                            Edit
+                          </button>
+                        )}
+
                         <button
                           onClick={()=>handleDeleteEntry(entry.id)}
                           className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
@@ -461,7 +753,7 @@ export default function TimeTrackerPage() {
           </>
         )}
 
-        {/* Calendar */}
+        {/* Calendar Tab - existing code */}
         {activeTab==='calendar' && (
           <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8">
             <div className="flex items-center justify-between mb-6">
@@ -527,7 +819,7 @@ export default function TimeTrackerPage() {
           </div>
         )}
 
-        {/* Analytics */}
+        {/* Analytics Tab - existing code */}
         {activeTab==='analytics' && (
           <div className="rounded-2xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8 space-y-10">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
@@ -609,7 +901,177 @@ export default function TimeTrackerPage() {
             </div>
           </div>
         )}
+
+        {/* NEW: Budgets Tab */}
+        {activeTab==='budgets' && (
+          <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
+                <Target className="w-5 h-5" /> Time Budgets
+              </h2>
+              <button
+                onClick={() => setShowBudgetModal(true)}
+                className={`px-5 py-3 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-semibold text-sm flex items-center gap-2 shadow ${theme.shadow}`}
+              >
+                <Plus className="w-4 h-4" />
+                Set Budget
+              </button>
+            </div>
+
+            {Object.keys(ticketBudgets).length === 0 ? (
+              <div className="text-center py-12">
+                <Target className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500 font-medium">No budgets set yet.</p>
+                <p className="text-sm text-slate-400 mt-2">Set time budgets to track progress and get warnings.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(ticketBudgets).map(([ticketId, budget]) => {
+                  const stat = ticketStats[ticketId];
+                  const percentage = stat ? (stat.totalHours / parseFloat(budget)) * 100 : 0;
+                  return (
+                    <div
+                      key={ticketId}
+                      className="rounded-2xl border border-slate-200/60 bg-white p-6"
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="text-sm font-bold text-slate-800">#{ticketId}</span>
+                            <span className="text-slate-700 font-semibold">
+                              {stat?.ticketTitle || 'Unknown Ticket'}
+                            </span>
+                          </div>
+                          <div className="text-sm text-slate-500">
+                            Budget: {budget}h
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveBudget(ticketId)}
+                          className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {stat && (
+                        <>
+                          <div className="mb-3">
+                            <div className="flex items-center justify-between text-sm mb-2">
+                              <span className="font-medium text-slate-700">
+                                {stat.totalHours.toFixed(2)}h logged
+                              </span>
+                              <span className={`font-bold ${
+                                percentage > 100 ? 'text-red-600' :
+                                percentage >= 80 ? 'text-amber-600' :
+                                'text-emerald-600'
+                              }`}>
+                                {percentage.toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  percentage > 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                                  percentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                                  'bg-gradient-to-r from-emerald-500 to-emerald-600'
+                                }`}
+                                style={{ width: `${Math.min(percentage, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {stat.isOverBudget && (
+                            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4" />
+                              Over budget by {Math.abs(stat.remaining).toFixed(2)}h
+                            </div>
+                          )}
+
+                          {stat.isNearLimit && (
+                            <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4" />
+                              {stat.remaining.toFixed(2)}h remaining ({percentage.toFixed(0)}% used)
+                            </div>
+                          )}
+
+                          {!stat.isOverBudget && !stat.isNearLimit && (
+                            <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
+                              {stat.remaining.toFixed(2)}h remaining
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </section>
+
+      {/* Budget Modal */}
+      {showBudgetModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
+            <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <Target className="w-5 h-5" />
+              Set Time Budget
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Select Ticket</label>
+                <select
+                  value={budgetTicketId}
+                  onChange={e => setBudgetTicketId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl p-3 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Choose a ticket...</option>
+                  {tickets.map(t => (
+                    <option key={t.id} value={String(t.id)}>
+                      #{t.id} - {t.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Budget (hours)</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  value={budgetHours}
+                  onChange={e => setBudgetHours(e.target.value)}
+                  placeholder="e.g. 40"
+                  className="w-full border border-slate-200 rounded-xl p-3 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleSetBudget}
+                disabled={!budgetTicketId || !budgetHours}
+                className={`flex-1 py-3 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold shadow-lg ${theme.shadow} hover:opacity-90 disabled:opacity-50`}
+              >
+                Set Budget
+              </button>
+              <button
+                onClick={() => {
+                  setShowBudgetModal(false);
+                  setBudgetTicketId('');
+                  setBudgetHours('');
+                }}
+                className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
