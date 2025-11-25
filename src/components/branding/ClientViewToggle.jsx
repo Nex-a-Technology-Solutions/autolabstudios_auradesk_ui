@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Eye, Building, Palette, LogOut, User } from 'lucide-react';
+import { Eye, Building, LogOut, User } from 'lucide-react';
 import { useBranding } from './BrandingProvider';
 import { useUser } from '../auth/UserProvider';
 import { User as UserAPI } from '@/api/entities';
@@ -75,43 +75,42 @@ export default function ClientViewToggle() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 bg-white/90 backdrop-blur-sm border border-slate-300 rounded-2xl shadow-lg shadow-slate-200/50 p-4 max-w-sm">
-      {/* Admin Info Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Eye className="w-4 h-4 text-slate-600" />
+    <div className="fixed bottom-3 left-3 z-50 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-lg shadow-md p-2.5 w-56">
+      {/* User Info Header */}
+      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
+        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(to right, #db2777, #e11d48)' }}>
+          <User className="w-3.5 h-3.5 text-white" />
         </div>
-        
-        {/* User Info */}
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-gradient-to-br from-teal-300 to-teal-400"></div>
-          <span className="text-xs text-slate-600 truncate max-w-20">
-            {user?.full_name?.split(' ')[0] || 'Admin'}
-          </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-black truncate">
+            {user?.full_name || user?.email || 'Admin User'}
+          </p>
+          <p className="text-[10px] text-slate-500 capitalize">
+            {user?.role}
+          </p>
         </div>
+        <Eye className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
       </div>
       
-      <div className="space-y-3">
+      <div className="space-y-2">
         {/* Project View Toggle */}
         <div>
-          <label className="text-xs font-medium text-slate-600 uppercase tracking-wider mb-1 block">
-          </label>
           <Select value={currentProjectId || 'default'} onValueChange={handleProjectChange}>
-            <SelectTrigger className="w-full bg-white border-slate-300 text-slate-900 rounded-xl">
+            <SelectTrigger className="w-full h-8 bg-white border-slate-200 text-black text-xs rounded-lg">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-white border-slate-200 rounded-xl max-h-60">
+            <SelectContent className="bg-white border-slate-200 rounded-lg max-h-60">
               <SelectItem value="default">
                 <div className="flex items-center gap-2">
-                  <Building className="w-4 h-4 text-slate-500" />
-                  Default Admin View
+                  <Building className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-xs text-black">Admin View (All Projects)</span>
                 </div>
               </SelectItem>
               {availableProjects?.results?.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   <div className="flex items-center gap-2">
-                    <div className={`w-3 h-3 rounded-full ${colorOptions[project.primary_color]?.class || 'bg-blue-500'}`} />
-                    <span className="truncate">
+                    <div className={`w-2.5 h-2.5 rounded-full ${colorOptions[project.primary_color]?.class || 'bg-blue-500'}`} />
+                    <span className="text-xs text-black truncate">
                       {project.display_name || `${project.name} Help Desk`}
                     </span>
                   </div>
@@ -123,37 +122,37 @@ export default function ClientViewToggle() {
 
         {/* Current Branding Info */}
         {currentProjectId && (
-          <div className="pt-2 border-t border-slate-200">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-500 font-medium">Current Branding:</span>
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${colorOptions[branding?.primaryColor]?.class || 'bg-blue-500'}`} />
-                <Badge variant="secondary" className="text-xs">
+          <div className="pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-slate-500">Active:</span>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${colorOptions[branding?.primaryColor]?.class || 'bg-blue-500'}`} />
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                   {colorOptions[branding?.primaryColor]?.name || 'Blue'}
                 </Badge>
               </div>
             </div>
-            <p className="text-xs text-slate-600 mt-1 truncate">
+            <p className="text-[10px] text-black mt-1 truncate">
               {branding?.appName}
             </p>
           </div>
         )}
 
         {/* Logout Section */}
-        <div className="pt-3 border-t border-slate-200">
+        <div className="pt-2 border-t border-slate-100">
           <button
             onClick={handleLogout}
             disabled={isLoggingOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 group border border-slate-200 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs text-black hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 border border-slate-200 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoggingOut ? (
               <>
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
                 <span>Signing out...</span>
               </>
             ) : (
               <>
-                <LogOut className="w-4 h-4 transition-colors duration-200" />
+                <LogOut className="w-3.5 h-3.5" />
                 <span>Sign out</span>
               </>
             )}
