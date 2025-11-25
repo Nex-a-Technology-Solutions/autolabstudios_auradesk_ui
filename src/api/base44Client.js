@@ -3,6 +3,10 @@ class DjangoApiClient {
     this.baseURL = baseURL;
     this.requiresAuth = options.requiresAuth || true;
     this.token = localStorage.getItem('auth_token');
+    this.refreshToken = localStorage.getItem('refresh_token');
+    
+    // Add token refresh interval
+    this.setupTokenRefresh();
     
     this.headers = {
       'Content-Type': 'application/json',
@@ -19,10 +23,80 @@ class DjangoApiClient {
     this.headers['Authorization'] = `Bearer ${token}`;
   }
   
+  setRefreshToken(refreshToken) {
+    this.refreshToken = refreshToken;
+    localStorage.setItem('refresh_token', refreshToken);
+  }
+  
+  // NEW: Auto-refresh tokens every 50 minutes (before 1hr expiration)
+  setupTokenRefresh() {
+    // Clear any existing interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+    
+    // Refresh every 50 minutes (3000000 ms)
+    this.refreshInterval = setInterval(async () => {
+      if (this.refreshToken) {
+        try {
+          await this.refreshAccessToken();
+        } catch (error) {
+          console.error('Token refresh failed:', error);
+          // Token refresh failed - user needs to log in again
+          this.removeToken();
+        }
+      }
+    }, 50 * 60 * 1000); // 50 minutes
+  }
+  
+  // NEW: Refresh access token using refresh token
+  async refreshAccessToken() {
+    try {
+      const response = await fetch(`${this.baseURL}/api/auth/token/refresh/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          refresh: this.refreshToken
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Token refresh failed');
+      }
+      
+      const data = await response.json();
+      
+      // Update access token
+      this.setToken(data.access);
+      
+      // Update refresh token if rotated
+      if (data.refresh) {
+        this.setRefreshToken(data.refresh);
+      }
+      
+      console.log('Token refreshed successfully');
+      return data;
+      
+    } catch (error) {
+      console.error('Failed to refresh token:', error);
+      throw error;
+    }
+  }
+  
   removeToken() {
     this.token = null;
+    this.refreshToken = null;
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
     delete this.headers['Authorization'];
+    
+    // Clear refresh interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
   }
   
   async makeRequest(method, endpoint, data = null, params = null) {
@@ -48,6 +122,30 @@ class DjangoApiClient {
     try {
       console.log(`Making ${method.toUpperCase()} request to:`, url.toString());
       const response = await fetch(url, config);
+      
+      // NEW: Try to refresh token on 401
+      if (response.status === 401 && this.refreshToken) {
+        try {
+          await this.refreshAccessToken();
+          // Retry request with new token
+          config.headers['Authorization'] = `Bearer ${this.token}`;
+          const retryResponse = await fetch(url, config);
+          
+          if (!retryResponse.ok) {
+            throw new Error('Request failed after token refresh');
+          }
+          
+          const contentType = retryResponse.headers.get('Content-Type');
+          if (contentType && contentType.includes('application/json')) {
+            return await retryResponse.json();
+          }
+          return {};
+          
+        } catch (refreshError) {
+          this.removeToken();
+          throw new Error('Authentication required. Please log in.');
+        }
+      }
       
       if (response.status === 401) {
         this.removeToken();
@@ -153,7 +251,7 @@ class Entity {
   }
 }
 
-// UPDATED UserEntity for Django 2FA
+// UPDATED UserEntity with OTP Login & Password Reset
 class UserEntity {
   constructor(client) {
     this.client = client;
@@ -196,38 +294,10 @@ class UserEntity {
     return this.client.put('auth/users/me/', data);
   }
   
-  // LOGIN FLOW - UPDATED FOR DJANGO 2FA
-  async login(email, password) {
-    const result = await this.client.post('auth/login/', { email, password });
-    
-    // Django returns either:
-    // A) { access, refresh, user } - if no MFA/verification needed
-    // B) { message, session_id, requires_verification, email } - if OTP needed
-    
-    if (result.access) {
-      // No OTP needed, set token immediately
-      this.client.setToken(result.access);
-    }
-    
-    return result;
-  }
+  // ========================================================================
+  // REGISTRATION FLOW (Same as before)
+  // ========================================================================
   
-  // VERIFY OTP - SINGLE ENDPOINT FOR BOTH LOGIN & REGISTRATION
-  async verifyOTP(email, token, type = 'email') {
-    const result = await this.client.post('auth/verify-otp/', { 
-      email, 
-      token,
-      type
-    });
-    
-    if (result.access) {
-      this.client.setToken(result.access);
-    }
-    
-    return result;
-  }
-  
-  // REGISTRATION FLOW - UPDATED FOR DJANGO 2FA
   async register(email, fullName, password, role = 'user') {
     const result = await this.client.post('auth/register/', { 
       email, 
@@ -235,17 +305,136 @@ class UserEntity {
       password,
       role
     });
-    
-    // Django always returns: { message, session_id, email, requires_verification }
+    // Returns: { message, email, requires_verification }
     return result;
   }
   
-  // RESEND OTP
+  // ========================================================================
+  // LOGIN FLOW - UPDATED WITH OTP
+  // ========================================================================
+  
+  /**
+   * Step 1: Request login (sends OTP to email)
+   * @param {string} email - User email
+   * @param {string} password - User password
+   * @returns {Promise} { message, requires_otp, email, verification_type } or { error }
+   */
+  async login(email, password) {
+    const result = await this.client.post('auth/login/', { email, password });
+    
+    // Backend always sends OTP now for login
+    // Returns: { message, requires_otp: true, email, verification_type: 'email' }
+    return result;
+  }
+  
+  /**
+   * Step 2: Verify OTP - Works for both login and registration
+   * @param {string} email - User email
+   * @param {string} token - 6-digit OTP code
+   * @param {string} type - OTP type ('email' for both login and registration)
+   * @returns {Promise} { message, access, refresh, user }
+   */
+  async verifyOTP(email, token, type = 'email') {
+    // Determine which endpoint to use based on context
+    // For login OTP verification, use the login verify endpoint
+    const endpoint = 'auth/login/verify-otp/';
+    
+    const result = await this.client.post(endpoint, { 
+      email, 
+      token,
+      type
+    });
+    
+    if (result.access) {
+      this.client.setToken(result.access);
+      localStorage.setItem('refresh_token', result.refresh);
+      localStorage.setItem('user', JSON.stringify(result.user));
+    }
+    
+    return result;
+  }
+  
+  /**
+   * Verify registration OTP (for registration flow)
+   * @param {string} email - User email
+   * @param {string} token - 6-digit OTP code
+   * @returns {Promise} { message, access, refresh, user }
+   */
+  async verifyRegistrationOTP(email, token) {
+    const result = await this.client.post('auth/verify-otp/', { 
+      email, 
+      token,
+      type: 'email'
+    });
+    
+    if (result.access) {
+      this.client.setToken(result.access);
+      localStorage.setItem('refresh_token', result.refresh);
+      localStorage.setItem('user', JSON.stringify(result.user));
+    }
+    
+    return result;
+  }
+  
+  // ========================================================================
+  // PASSWORD RESET FLOW - NEW
+  // ========================================================================
+  
+  /**
+   * Step 1: Request password reset (sends OTP to email)
+   * @param {string} email - User email
+   * @returns {Promise} { message, email }
+   */
+  async requestPasswordReset(email) {
+    return this.client.post('auth/password-reset/', { email });
+  }
+  
+  /**
+   * Step 2: Verify password reset OTP
+   * @param {string} email - User email
+   * @param {string} token - 6-digit OTP code
+   * @returns {Promise} { message, access, email }
+   */
+  async verifyPasswordResetOTP(email, token) {
+    return this.client.post('auth/password-reset/verify-otp/', { 
+      email, 
+      token 
+    });
+  }
+  
+  /**
+   * Step 3: Set new password
+   * @param {string} accessToken - Access token from OTP verification
+   * @param {string} newPassword - New password
+   * @param {string} confirmPassword - Confirm new password
+   * @returns {Promise} { message }
+   */
+  async confirmPasswordReset(accessToken, newPassword, confirmPassword) {
+    return this.client.post('auth/password-reset/confirm/', {
+      access_token: accessToken,
+      new_password: newPassword,
+      confirm_password: confirmPassword
+    });
+  }
+  
+  // ========================================================================
+  // UTILITY METHODS
+  // ========================================================================
+  
+  /**
+   * Resend OTP - works for login, registration, or password reset
+   * @param {string} email - User email
+   * @param {string} type - 'signup' for registration, 'recovery' for password reset, 'email' for login
+   * @returns {Promise} { message, email }
+   */
   async resendOTP(email, type = 'email') {
     return this.client.post('auth/resend-otp/', { email, type });
   }
   
+  // ========================================================================
   // MFA MANAGEMENT
+  // ========================================================================
+  
   async enableMFA(phone) {
     return this.client.post('auth/mfa/enable/', { phone });
   }
@@ -261,6 +450,8 @@ class UserEntity {
   async logout() {
     const result = await this.client.post('auth/logout/');
     this.client.removeToken();
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
     return result;
   }
   
@@ -419,7 +610,9 @@ class InvitationService {
 
 class AuraDeskClient {
   constructor(options = {}) {
-    this.apiClient = new DjangoApiClient('https://auradesk-api.fly.dev', options);
+    // Use the provided baseURL or default to local
+    const baseURL = options.baseURL || 'https://auradesk-api.fly.dev';
+    this.apiClient = new DjangoApiClient(baseURL, options);
     
     this.entities = {
       Ticket: new Entity(this.apiClient, 'Ticket'),
@@ -449,8 +642,10 @@ class AuraDeskClient {
   }
 }
 
+// Default to local backend
 export const base44 = new AuraDeskClient({
-  requiresAuth: true
+  requiresAuth: true,
+  baseURL: 'https://auradesk-api.fly.dev'
 });
 
 export const Invitations = base44.invitations;

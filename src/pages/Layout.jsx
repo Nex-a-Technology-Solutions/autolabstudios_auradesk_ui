@@ -84,7 +84,7 @@ const adminNavItems = [
 ];
 
 // List of pages that should not show the sidebar
-const NO_SIDEBAR_PAGES = ['/login', '/register'];
+const NO_SIDEBAR_PAGES = ['/login', '/register', '/forgot-password'];
 
 function AppLayout({ children }) {
   const location = useLocation();
