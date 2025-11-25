@@ -16,7 +16,7 @@ export function BrandingProvider({ children }) {
   const [branding, setBranding] = useState({
     appName: 'Scribe Desk',
     displayName: 'Scribe Desk',
-    primaryColor: 'purple',
+    primaryColor: 'pink',
     logoUrl: null
   });
   
@@ -41,7 +41,7 @@ export function BrandingProvider({ children }) {
       setBranding({
         appName: 'Scribe Desk',
         displayName: 'Scribe Desk',
-        primaryColor: 'purple',
+        primaryColor: 'pink',
         logoUrl: null
       });
       setCurrentProjectId(null);
@@ -55,7 +55,7 @@ export function BrandingProvider({ children }) {
         setBranding({
           appName: project.display_name || `${project.name} Help Desk`,
           displayName: project.display_name || project.name,
-          primaryColor: project.primary_color || 'purple',
+          primaryColor: project.primary_color || 'pink',
           logoUrl: project.logo_url || null,
           projectId: project.id
         });
@@ -74,7 +74,7 @@ export function BrandingProvider({ children }) {
         setBranding({
           appName: 'Scribe Desk',
           displayName: 'Scribe Desk',
-          primaryColor: 'purple',
+          primaryColor: 'pink',
           logoUrl: null
         });
       } else if (user && user.projects && user.projects.length > 0) {
