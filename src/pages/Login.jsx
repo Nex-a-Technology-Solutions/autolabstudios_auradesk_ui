@@ -5,6 +5,9 @@ import { useNavigate } from "react-router-dom";
 
 const Login = ({ onLoginSuccess }) => {
   const navigate = useNavigate();
+
+  console.log('Current auth_token:', localStorage.getItem('auth_token'));
+  console.log('Current refresh_token:', localStorage.getItem('refresh_token'));
   
   const [step, setStep] = useState('credentials');
   const [formData, setFormData] = useState({

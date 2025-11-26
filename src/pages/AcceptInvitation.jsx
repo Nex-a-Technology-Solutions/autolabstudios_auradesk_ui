@@ -11,14 +11,6 @@ import { Mail, User, Shield, Calendar } from "lucide-react";
 export default function AcceptInvitation() {
   const { token } = useParams();
   const navigate = useNavigate();
-  
-  console.log('=== DEBUGGING INVITATION TOKEN ===');
-  console.log('Raw token from useParams:', token);
-  console.log('Token type:', typeof token);
-  console.log('All URL params:', useParams());
-  console.log('Current URL:', window.location.href);
-  console.log('Current pathname:', window.location.pathname);
-  console.log('================================');
 
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -224,7 +216,11 @@ export default function AcceptInvitation() {
 
             <Button 
               type="submit" 
-              className="w-full"
+              className="w-full py-2.5 rounded-xl font-normal text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                style={{ 
+                  background: 'linear-gradient(to right, #db2777, #e11d48)',
+                  opacity: loading ? 0.9 : 1
+                }}
               disabled={submitting || !formData.password || !formData.confirmPassword}
             >
               {submitting ? (

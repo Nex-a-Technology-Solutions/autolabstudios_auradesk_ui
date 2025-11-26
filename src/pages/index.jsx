@@ -11,6 +11,7 @@ import Login from "./Login";
 import Register from './Register';
 import AcceptInvitation from "./AcceptInvitation.jsx";
 import ForgotPassword from "../components/auth/forgotPassword.jsx";
+import TimeTracker from "./TimeTracker";
 import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 
 // Import the route protection components
@@ -58,7 +59,7 @@ function PagesContent() {
                 <Route path="/Admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
                 <Route path="/DataStructure" element={<ProtectedRoute><DataStructure /></ProtectedRoute>} />
                 <Route path="/Integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
-
+                <Route path="/TimeTracker" element={<ProtectedRoute><TimeTracker/></ProtectedRoute>} />
                 {/* Public Routes */}
                 <Route path="/Login" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/Register" element={<PublicRoute><Register /></PublicRoute>} />

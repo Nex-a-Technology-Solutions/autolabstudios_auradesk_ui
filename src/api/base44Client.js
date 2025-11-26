@@ -5,6 +5,14 @@ class DjangoApiClient {
     this.token = localStorage.getItem('auth_token');
     this.refreshToken = localStorage.getItem('refresh_token');
     
+    // NEW: Clear invalid tokens
+    if (this.token && this.token.split('.').length !== 3) {
+      console.warn('Invalid token detected, clearing...');
+      this.removeToken();
+      this.token = null;
+      this.refreshToken = null;
+    }
+    
     // Add token refresh interval
     this.setupTokenRefresh();
     

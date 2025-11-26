@@ -7,10 +7,8 @@ import {
   Plus,
   ShieldCheck,
   Users,
-  MessageSquare,
   Settings,
-  LogOut,
-  ChevronRight
+  Clock,
 } from "lucide-react";
 import {
   Sidebar,
@@ -48,8 +46,12 @@ const baseNavItems = [
     url: createPageUrl("CreateTicket"),
     icon: Plus,
   },
+  {
+    title: "Time Tracker", // Add Time Tracker to base navigation
+    url: createPageUrl("TimeTracker"),
+    icon: Clock,
+  },
 ];
-
 const adminNavItems = [
   {
     title: "Dashboard",
@@ -65,6 +67,11 @@ const adminNavItems = [
     title: "Create Ticket",
     url: createPageUrl("CreateTicket"),
     icon: Plus,
+  },
+  {
+    title: "Time Tracker", // Add Time Tracker to admin navigation
+    url: createPageUrl("TimeTracker"),
+    icon: Clock,
   },
   {
     title: "Admin Panel",
@@ -84,7 +91,7 @@ const adminNavItems = [
 ];
 
 // List of pages that should not show the sidebar
-const NO_SIDEBAR_PAGES = ['/login', '/register', '/forgot-password'];
+const NO_SIDEBAR_PAGES = ['/login', '/register', '/forgot-password', '/invitation'];
 
 function AppLayout({ children }) {
   const location = useLocation();
@@ -96,7 +103,10 @@ function AppLayout({ children }) {
   const navigationItems = user?.role === 'admin' ? adminNavItems : baseNavItems;
   
   // Check if current page should show sidebar
-  const shouldShowSidebar = !NO_SIDEBAR_PAGES.includes(location.pathname.toLowerCase());
+  const pathLower = location.pathname.toLowerCase();
+  const shouldShowSidebar = !NO_SIDEBAR_PAGES.some(page => 
+    pathLower === page || pathLower.startsWith(page + '/')
+  );
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
