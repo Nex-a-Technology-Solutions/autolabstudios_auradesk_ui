@@ -1,5 +1,5 @@
 class DjangoApiClient {
-  constructor(baseURL = 'http://127.0.0.1:8000', options = {}) {
+  constructor(baseURL = 'https://auradesk-api.fly.dev', options = {}) {
     this.baseURL = baseURL;
     this.requiresAuth = options.requiresAuth || true;
     this.token = localStorage.getItem('auth_token');
