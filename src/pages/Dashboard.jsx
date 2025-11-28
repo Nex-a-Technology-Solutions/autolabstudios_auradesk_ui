@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Ticket, Project } from "@/api/entities";
-import { Link } from "react-router-dom";
+import { Gmail } from "@/api/integrations";
+import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useUser } from "../components/auth/UserProvider";
 import { useBranding } from "../components/branding/BrandingProvider";
@@ -13,9 +14,14 @@ import {
   Mail,
   XCircle,
   Info,
-  AlertTriangle
+  AlertTriangle,
+  Loader2,
+  Calendar,
+  Hash
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import StatsCard from "../components/dashboard/StatsCard";
 import RecentTickets from "../components/dashboard/RecentTickets";
 import TicketChart from "../components/dashboard/TicketChart";
@@ -29,8 +35,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-// --- NotificationsList Component (defined within this file for self-containment) ---
+// Notification Components
 const NotificationItem = ({ notification, onDismiss }) => {
   let icon;
   let bgColor;
@@ -89,8 +102,6 @@ const NotificationsList = ({ notifications, onDismiss }) => {
     </div>
   );
 };
-// --- End NotificationsList Component ---
-
 
 export default function Dashboard() {
   const [tickets, setTickets] = useState([]);
@@ -98,13 +109,17 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useUser();
   const { branding, theme } = useBranding();
+  const navigate = useNavigate();
 
-  // New state for notifications and Gmail import
+  // Gmail import state
   const [notifications, setNotifications] = useState([]);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [selectedProject, setSelectedProject] = useState("");
+  const [timeRange, setTimeRange] = useState("1d"); // NEW: Time range filter
+  const [maxEmails, setMaxEmails] = useState([15]); // NEW: Max emails slider
+  const [importResults, setImportResults] = useState(null);
 
-  // Function to add a notification
   const addNotification = useCallback((type, message) => {
     setNotifications(prev => [...prev, { id: Date.now(), type, message }]);
   }, []);
@@ -132,7 +147,6 @@ export default function Dashboard() {
           const userProjectsData = await Promise.all(
             user.projects.map(projectId => Project.filter({ id: projectId }))
           );
-
           projectData = userProjectsData.flat().map(response => 
             Array.isArray(response) ? response : (response?.results || response || [])
           ).flat();
@@ -143,7 +157,6 @@ export default function Dashboard() {
 
       setTickets(Array.isArray(ticketData) ? ticketData : (ticketData?.results || []));
       setProjects(Array.isArray(projectData) ? projectData : (projectData?.results || []));
-      addNotification('info', 'Dashboard data loaded successfully.');
     } catch (error) {
       console.error("Error loading dashboard data:", error);
       addNotification('error', 'Failed to load dashboard data. Please try refreshing the page.');
@@ -155,17 +168,74 @@ export default function Dashboard() {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // Function to handle Gmail import
   const handleGmailImport = async () => {
+    if (!selectedProject || selectedProject === '') {
+      addNotification('warning', 'Please select a project first');
+      return;
+    }
+
     setIsImporting(true);
+    setImportResults(null);
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 2500));
-      console.log("Gmail import initiated successfully!");
-      addNotification('success', 'Gmail import process started. New tickets will appear shortly.');
-      setShowImportDialog(false);
+      // Check Gmail connection
+      const status = await Gmail.getStatus();
+      
+      if (!status.connected) {
+        addNotification('warning', 'Gmail not connected. Redirecting to integrations...');
+        setIsImporting(false);
+        setTimeout(() => {
+          navigate(createPageUrl("Integrations"));
+        }, 1500);
+        return;
+      }
+
+      // Build Gmail query based on time range
+      let query = 'is:unread';
+      if (timeRange !== 'all') {
+        query += ` newer_than:${timeRange}`;
+      }
+
+      console.log('Gmail sync query:', query, 'Max emails:', maxEmails[0]);
+
+      // Call Gmail.sync with custom parameters
+      const result = await Gmail.sync(selectedProject, query, maxEmails[0]);
+      
+      if (result.success) {
+        setImportResults(result);
+        
+        // Build detailed message
+        let message = `Processed ${result.messages_processed} emails. `;
+        message += `Created ${result.tickets_created} ticket${result.tickets_created !== 1 ? 's' : ''}`;
+        
+        if (result.skipped_emails && result.skipped_emails.length > 0) {
+          message += `, skipped ${result.skipped_emails.length} non-support email${result.skipped_emails.length !== 1 ? 's' : ''}`;
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+          message += `, ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`;
+        }
+
+        if (result.tickets_created === 0) {
+          addNotification('info', message);
+        } else {
+          addNotification('success', message);
+          await loadDashboardData();
+        }
+        
+        setShowImportDialog(false);
+        setSelectedProject("");
+        setTimeRange("1d");
+        setMaxEmails([15]);
+      } else {
+        addNotification('error', result.error || 'Gmail sync failed');
+      }
+      
     } catch (error) {
-      console.error("Error importing Gmail:", error);
-      addNotification('error', 'Failed to import from Gmail. Please ensure permissions are granted and try again.');
+      console.error("Gmail import error:", error);
+      const errorMsg = error.message || 'An unexpected error occurred';
+      addNotification('error', `Failed to import from Gmail: ${errorMsg}`);
+      
     } finally {
       setIsImporting(false);
     }
@@ -182,11 +252,19 @@ export default function Dashboard() {
 
   const stats = getStats();
 
-  // Dynamic content based on user role
   const pageTitle = user?.role === 'admin' ? "Welcome back to Scribe Desk" : branding.displayName;
   const pageDescription = user?.role === 'admin'
     ? 'Complete overview of support activity across all projects and clients.'
     : 'Welcome to your support portal. View your tickets and get help when you need it.';
+
+  // Time range options
+  const timeRangeOptions = [
+    { value: '1h', label: 'Last 1 hour', description: 'Most recent emails' },
+    { value: '1d', label: 'Last 24 hours', description: 'Today\'s emails' },
+    { value: '3d', label: 'Last 3 days', description: 'Recent emails' },
+    { value: '7d', label: 'Last 7 days', description: 'This week\'s emails' },
+    { value: 'all', label: 'All unread', description: 'Every unread email' }
+  ];
 
   return (
     <div className={`min-h-screen bg-gradient-to-br ${theme.bg}`}>
@@ -221,24 +299,135 @@ export default function Dashboard() {
                       Import from Gmail
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="sm:max-w-[425px] p-6 bg-white rounded-lg shadow-xl">
+                  <DialogContent className="sm:max-w-[550px] p-6 bg-white rounded-lg shadow-xl">
                     <DialogHeader>
                       <DialogTitle className="text-2xl font-bold text-gray-800">Import Gmail Tickets</DialogTitle>
                       <DialogDescription className="text-gray-600 mt-2">
-                        This action will connect to your Gmail account and import relevant support emails as new tickets.
-                        Ensure you have granted necessary permissions.
+                        Configure your import settings to fetch support emails from Gmail.
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="mt-4 text-sm text-gray-700">
-                      Please note: This is a simulated import. In a real application, this would redirect
-                      to a Gmail OAuth flow or similar, and then process emails on the backend.
+
+                    <div className="mt-6 space-y-6">
+                      {/* Project Selection */}
+                      <div>
+                        <Label htmlFor="project" className="text-sm font-medium text-gray-700 mb-2">
+                          Select Project *
+                        </Label>
+                        <Select value={selectedProject} onValueChange={setSelectedProject}>
+                          <SelectTrigger className="w-full mt-2">
+                            <SelectValue placeholder="Choose a project..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {projects.map(project => (
+                              <SelectItem key={project.id} value={project.id.toString()}>
+                                {project.display_name || project.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          All imported tickets will be assigned to this project
+                        </p>
+                      </div>
+
+                      {/* Time Range Selection */}
+                      <div>
+                        <Label htmlFor="timeRange" className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Time Range
+                        </Label>
+                        <Select value={timeRange} onValueChange={setTimeRange}>
+                          <SelectTrigger className="w-full mt-2">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {timeRangeOptions.map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{option.label}</span>
+                                  <span className="text-xs text-gray-500">{option.description}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Only check emails from this time period
+                        </p>
+                      </div>
+
+                      {/* Max Emails Slider */}
+                      <div>
+                        <Label htmlFor="maxEmails" className="text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                          <span className="flex items-center">
+                            <Hash className="w-4 h-4 mr-2" />
+                            Maximum Emails
+                          </span>
+                          <span className="text-blue-600 font-bold">{maxEmails[0]}</span>
+                        </Label>
+                        <Slider
+                          id="maxEmails"
+                          min={5}
+                          max={50}
+                          step={5}
+                          value={maxEmails}
+                          onValueChange={setMaxEmails}
+                          className="mt-4"
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-2">
+                          <span>5 emails</span>
+                          <span>50 emails</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Limit the number of emails to process
+                        </p>
+                      </div>
+
+                      {/* Info Box */}
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+                          <Info className="w-4 h-4 mr-2" />
+                          How it works
+                        </h4>
+                        <ul className="text-sm text-blue-800 space-y-1">
+                          <li>• AI analyzes email subject and content</li>
+                          <li>• Only imports genuine support requests</li>
+                          <li>• Skips duplicates and non-support emails</li>
+                          <li>• Creates guest users for new senders</li>
+                          <li>• Marks imported emails as read</li>
+                        </ul>
+                      </div>
                     </div>
+
                     <DialogFooter className="mt-6 flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setShowImportDialog(false)} disabled={isImporting}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setShowImportDialog(false);
+                          setSelectedProject("");
+                          setTimeRange("1d");
+                          setMaxEmails([15]);
+                        }} 
+                        disabled={isImporting}
+                      >
                         Cancel
                       </Button>
-                      <Button onClick={handleGmailImport} disabled={isImporting}>
-                        {isImporting ? 'Importing...' : 'Continue Import'}
+                      <Button 
+                        onClick={handleGmailImport} 
+                        disabled={isImporting || !selectedProject}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isImporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="w-4 h-4 mr-2" />
+                            Import Emails
+                          </>
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>

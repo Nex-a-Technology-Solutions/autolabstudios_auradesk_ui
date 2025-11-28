@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useUser } from "../components/auth/UserProvider";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { Gmail, GoTo } from "../api/integrations";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +19,8 @@ import {
   RefreshCw,
   AlertTriangle,
   Zap,
-  Calendar,
-  Users,
-  MessageSquare
+  MessageSquare,
+  Loader2
 } from "lucide-react";
 
 const IntegrationCard = ({ 
@@ -32,7 +32,8 @@ const IntegrationCard = ({
   onDisconnect, 
   onConfigure,
   features,
-  status = "available"
+  status = "available",
+  isLoading = false
 }) => {
   return (
     <Card className="relative">
@@ -71,7 +72,7 @@ const IntegrationCard = ({
               ) : (
                 <>
                   <AlertTriangle className="w-3 h-3 mr-1" />
-                  Setup Required
+                  Coming Soon
                 </>
               )}
             </Badge>
@@ -94,23 +95,37 @@ const IntegrationCard = ({
         <div className="flex gap-2 pt-2">
           {isConnected ? (
             <>
-              <Button variant="outline" size="sm" onClick={onConfigure}>
+              <Button variant="outline" size="sm" onClick={onConfigure} disabled={isLoading}>
                 <Settings className="w-4 h-4 mr-2" />
                 Configure
               </Button>
-              <Button variant="outline" size="sm" onClick={onDisconnect} className="text-red-600 hover:text-red-700">
-                <XCircle className="w-4 h-4 mr-2" />
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onDisconnect} 
+                className="text-red-600 hover:text-red-700"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <XCircle className="w-4 h-4 mr-2" />
+                )}
                 Disconnect
               </Button>
             </>
           ) : (
             <Button 
               onClick={onConnect} 
-              disabled={status !== "available"}
+              disabled={status !== "available" || isLoading}
               className="bg-blue-600 hover:bg-blue-700"
             >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              {status === "available" ? "Connect" : "Setup Required"}
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <ExternalLink className="w-4 h-4 mr-2" />
+              )}
+              {status === "available" ? "Connect" : "Coming Soon"}
             </Button>
           )}
         </div>
@@ -120,7 +135,7 @@ const IntegrationCard = ({
 };
 
 export default function Integrations() {
-  const { user, isLoading } = useUser();
+  const { user, isLoading: userLoading } = useUser();
   const navigate = useNavigate();
   const [integrations, setIntegrations] = useState({
     gmail: {
@@ -134,18 +149,156 @@ export default function Integrations() {
       lastMeeting: null
     }
   });
+  const [loading, setLoading] = useState({
+    gmail: false,
+    goto: false,
+    sync: false
+  });
 
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'admin')) {
+    if (!userLoading && (!user || user.role !== 'admin')) {
       navigate(createPageUrl("Dashboard"));
     }
-  }, [user, isLoading, navigate]);
+  }, [user, userLoading, navigate]);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (user && user.role === 'admin') {
+      loadIntegrationStatus();
+      handleOAuthCallback();
+    }
+  }, [user]);
+
+  const loadIntegrationStatus = async () => {
+    try {
+      const gmailStatus = await Gmail.getStatus();
+      setIntegrations(prev => ({
+        ...prev,
+        gmail: {
+          connected: gmailStatus.connected || false,
+          lastSync: gmailStatus.last_sync,
+          ticketsImported: gmailStatus.tickets_imported || 0
+        }
+      }));
+
+      try {
+        const gotoStatus = await GoTo.getStatus();
+        setIntegrations(prev => ({
+          ...prev,
+          goto: {
+            connected: gotoStatus.connected || false,
+            meetingsScheduled: gotoStatus.meetings_scheduled || 0,
+            lastMeeting: gotoStatus.last_meeting
+          }
+        }));
+      } catch (e) {
+        // GoTo not implemented yet
+      }
+    } catch (error) {
+      console.error('Error loading integration status:', error);
+    }
+  };
+
+  const handleOAuthCallback = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    
+    if (code && state) {
+      handleGmailCallback(code, state);
+    }
+  };
+
+  const handleGmailConnect = async () => {
+    setLoading(prev => ({ ...prev, gmail: true }));
+    try {
+      const redirectUri = `${window.location.origin}${window.location.pathname}`;
+      const result = await Gmail.connect(redirectUri);
+      
+      if (result.success && result.auth_url) {
+        window.location.href = result.auth_url;
+      }
+    } catch (error) {
+      alert(`Failed to connect Gmail: ${error.message}`);
+    } finally {
+      setLoading(prev => ({ ...prev, gmail: false }));
+    }
+  };
+
+  const handleGmailCallback = async (code, state) => {
+    setLoading(prev => ({ ...prev, gmail: true }));
+    try {
+      const redirectUri = `${window.location.origin}${window.location.pathname}`;
+      const result = await Gmail.handleCallback(code, state, redirectUri);
+      
+      if (result.success) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        await loadIntegrationStatus();
+        alert('Gmail connected successfully!');
+      }
+    } catch (error) {
+      alert(`Failed to complete Gmail connection: ${error.message}`);
+    } finally {
+      setLoading(prev => ({ ...prev, gmail: false }));
+    }
+  };
+
+  const handleGmailDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect Gmail? This will stop automatic ticket creation from emails.')) {
+      return;
+    }
+    
+    setLoading(prev => ({ ...prev, gmail: true }));
+    try {
+      await Gmail.disconnect();
+      setIntegrations(prev => ({
+        ...prev,
+        gmail: { connected: false, lastSync: null, ticketsImported: 0 }
+      }));
+      alert('Gmail disconnected successfully');
+    } catch (error) {
+      alert(`Failed to disconnect Gmail: ${error.message}`);
+    } finally {
+      setLoading(prev => ({ ...prev, gmail: false }));
+    }
+  };
+
+  const handleGmailConfigure = () => {
+    alert("Gmail configuration allows you to set up filters, folders to monitor, and automatic ticket creation rules. Feature coming soon!");
+  };
+
+  const handleGoToConnect = () => {
+    alert("GoTo integration is coming soon! This will allow you to schedule meetings directly from tickets.");
+  };
+
+  const handleGoToDisconnect = () => {
+    alert("GoTo integration is coming soon!");
+  };
+
+  const handleGoToConfigure = () => {
+    alert("GoTo configuration would allow you to set up automatic meeting scheduling for high-priority tickets and client onboarding.");
+  };
+
+  const handleSyncGmail = async () => {
+    setLoading(prev => ({ ...prev, sync: true }));
+    try {
+      const result = await Gmail.sync();
+      
+      if (result.success) {
+        alert(`Sync completed! Created ${result.tickets_created} new tickets from ${result.messages_processed} emails.`);
+        await loadIntegrationStatus();
+      }
+    } catch (error) {
+      alert(`Failed to sync Gmail: ${error.message}`);
+    } finally {
+      setLoading(prev => ({ ...prev, sync: false }));
+    }
+  };
+
+  if (userLoading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-4" />
           <p className="text-gray-600">Loading integrations...</p>
         </div>
       </div>
@@ -167,40 +320,6 @@ export default function Integrations() {
     );
   }
 
-  const handleGmailConnect = () => {
-    alert("Gmail OAuth integration would redirect to Google's authorization page. This feature requires backend setup - please contact the base44 team to enable Gmail integration.");
-  };
-
-  const handleGmailDisconnect = () => {
-    setIntegrations(prev => ({
-      ...prev,
-      gmail: { connected: false, lastSync: null, ticketsImported: 0 }
-    }));
-  };
-
-  const handleGmailConfigure = () => {
-    alert("Gmail configuration would allow you to set up filters, folders to monitor, and automatic ticket creation rules.");
-  };
-
-  const handleGoToConnect = () => {
-    alert("GoTo integration would redirect to GoTo's authorization page. This feature requires backend setup - please contact the base44 team to enable GoTo integration.");
-  };
-
-  const handleGoToDisconnect = () => {
-    setIntegrations(prev => ({
-      ...prev,
-      goto: { connected: false, meetingsScheduled: 0, lastMeeting: null }
-    }));
-  };
-
-  const handleGoToConfigure = () => {
-    alert("GoTo configuration would allow you to set up automatic meeting scheduling for high-priority tickets and client onboarding.");
-  };
-
-  const handleSyncGmail = () => {
-    alert("Manual sync would check for new emails and create tickets. This typically runs automatically every 15 minutes when connected.");
-  };
-
   return (
     <div className="p-4 md:p-8 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       <div className="max-w-6xl mx-auto">
@@ -216,7 +335,7 @@ export default function Integrations() {
         <Alert className="mb-8 bg-blue-50 border-blue-200 text-blue-800">
           <Zap className="h-4 w-4" />
           <AlertDescription>
-            <strong>Note:</strong> These integrations require backend configuration. Contact the base44 team through the feedback button to enable specific integrations for your app.
+            <strong>Gmail Integration Active!</strong> Connect your Gmail account to automatically convert support emails into tickets.
           </AlertDescription>
         </Alert>
 
@@ -237,7 +356,8 @@ export default function Integrations() {
                 onConnect={handleGmailConnect}
                 onDisconnect={handleGmailDisconnect}
                 onConfigure={handleGmailConfigure}
-                status="setup_required"
+                status="available"
+                isLoading={loading.gmail}
                 features={[
                   "Automatic ticket creation from emails",
                   "Email thread tracking in tickets",
@@ -256,7 +376,8 @@ export default function Integrations() {
                 onConnect={handleGoToConnect}
                 onDisconnect={handleGoToDisconnect}
                 onConfigure={handleGoToConfigure}
-                status="setup_required"
+                status="coming_soon"
+                isLoading={loading.goto}
                 features={[
                   "Schedule meetings directly from tickets",
                   "Automatic meeting links for urgent tickets",
@@ -290,7 +411,9 @@ export default function Integrations() {
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <h4 className="font-medium text-gray-900">Last Sync</h4>
                           <p className="text-sm text-gray-600">
-                            {integrations.gmail.lastSync || "Never"}
+                            {integrations.gmail.lastSync 
+                              ? new Date(integrations.gmail.lastSync).toLocaleString()
+                              : "Never"}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
@@ -298,9 +421,22 @@ export default function Integrations() {
                           <p className="text-sm text-green-600 font-medium">Connected</p>
                         </div>
                       </div>
-                      <Button variant="outline" onClick={handleSyncGmail}>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Manual Sync
+                      <Button 
+                        variant="outline" 
+                        onClick={handleSyncGmail}
+                        disabled={loading.sync}
+                      >
+                        {loading.sync ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Syncing...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Manual Sync
+                          </>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>

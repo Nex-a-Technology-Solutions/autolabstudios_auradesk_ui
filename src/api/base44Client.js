@@ -1,5 +1,5 @@
 class DjangoApiClient {
-  constructor(baseURL = 'https://auradesk-api.fly.dev', options = {}) {
+  constructor(baseURL = 'http://127.0.0.1:8000', options = {}) {
     this.baseURL = baseURL;
     this.requiresAuth = options.requiresAuth || true;
     this.token = localStorage.getItem('auth_token');
@@ -619,7 +619,7 @@ class InvitationService {
 class AuraDeskClient {
   constructor(options = {}) {
     // Use the provided baseURL or default to local
-    const baseURL = options.baseURL || 'https://auradesk-api.fly.dev';
+    const baseURL = options.baseURL || 'http://127.0.0.1:8000';
     this.apiClient = new DjangoApiClient(baseURL, options);
     
     this.entities = {
@@ -653,7 +653,7 @@ class AuraDeskClient {
 // Default to local backend
 export const base44 = new AuraDeskClient({
   requiresAuth: true,
-  baseURL: 'https://auradesk-api.fly.dev'
+  baseURL: 'http://127.0.0.1:8000'
 });
 
 export const Invitations = base44.invitations;
