@@ -263,7 +263,7 @@ const Login = ({ onLoginSuccess }) => {
             <div className="flex items-center justify-center p-8 sm:p-12 lg:p-16 relative">
               <div className="w-full max-w-md">
                 {/* Logo */}
-                <div className="w-5 h-5 rounded-lg mb-4" style={{ background: 'black' }} />
+                <img src="/scribe_desk_logo.png" alt="Scribe Desk" className="w-32 h-auto mb-4" />
                 
                 <h1 className="text-2xl sm:text-3xl font-normal text-gray-900 mb-2">Get Started Now</h1>
                 <p className="text-sm text-gray-600 mb-8">Enter your credentials to access your account</p>
@@ -338,19 +338,6 @@ const Login = ({ onLoginSuccess }) => {
                     <a href="/forgot-password" className="text-sm hover:underline" style={{ color: 'black' }}>
                       Forgot password?
                     </a>
-                  </div>
-
-                  <div className="flex items-center gap-2 mb-4">
-                    <input 
-                      id="terms" 
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="cursor-pointer"
-                    />
-                    <label htmlFor="terms" className="text-sm text-gray-700 cursor-pointer">
-                      I agree to the <a href="/terms" className="underline" style={{ color: 'black' }}>Terms & Privacy</a>
-                    </label>
                   </div>
 
                   {error && (

@@ -94,18 +94,22 @@ class DjangoApiClient {
   }
   
   removeToken() {
-    this.token = null;
-    this.refreshToken = null;
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
+  this.token = null;
+  this.refreshToken = null;
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('user');
+  
+  // Only delete Authorization header if headers object exists
+  if (this.headers) {
     delete this.headers['Authorization'];
-    
-    // Clear refresh interval
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
   }
+  
+  // Clear refresh interval
+  if (this.refreshInterval) {
+    clearInterval(this.refreshInterval);
+  }
+}
   
   async makeRequest(method, endpoint, data = null, params = null) {
     const url = new URL(`${this.baseURL}/api/${endpoint.replace(/^\//, '')}`);
