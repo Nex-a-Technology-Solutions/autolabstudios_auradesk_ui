@@ -1,4 +1,4 @@
-// src/api/integrations.js - DEBUG VERSION
+// src/api/integrations.js - FIXED VERSION
 import { base44 } from './base44Client';
 
 // Gmail Integration Class
@@ -23,30 +23,21 @@ class GmailIntegration {
     return this.client.get('integrations/Gmail/status/');
   }
   
-  async sync(projectId, query = null, maxResults = 50) {
+  async sync(projectId = null, query = null, maxResults = 50) {
     console.log('=== Gmail.sync called ===');
-    console.log('Raw arguments:', { projectId, query, maxResults });
-    console.log('projectId type:', typeof projectId);
-    console.log('projectId value:', projectId);
-    console.log('projectId stringified:', JSON.stringify(projectId));
+    console.log('Arguments:', { projectId, query, maxResults });
     
-    // Check if projectId is actually defined
-    if (projectId === undefined || projectId === null || projectId === '') {
-      console.error('❌ projectId is invalid!');
-      throw new Error('Invalid project ID provided to Gmail.sync');
-    }
-    
+    // Build payload - projectId is now optional and ignored by backend
     const payload = {
-      project_id: String(projectId),  // Force to string
-      max_results: Number(maxResults)  // Force to number
+      max_results: Number(maxResults)
     };
     
+    // Add query if provided
     if (query !== null && query !== undefined && query !== '') {
       payload.query = query;
     }
     
-    console.log('✅ Final payload object:', payload);
-    console.log('✅ Payload as JSON:', JSON.stringify(payload));
+    console.log('✅ Payload (no project_id needed):', payload);
     console.log('✅ Calling endpoint: integrations/Gmail/sync/');
     console.log('========================');
     

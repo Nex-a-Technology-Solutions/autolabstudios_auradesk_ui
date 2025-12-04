@@ -611,11 +611,42 @@ class InvitationService {
     return this.client.get(`invitations/details/${token}/`);
   }
   
+  /**
+   * Accept invitation - Creates Supabase account and sends OTP
+   * @param {string} token - Invitation token
+   * @param {string} password - User password
+   * @param {string} confirmPassword - Confirm password
+   * @returns {Promise} { success, message, requires_verification, email, user }
+   */
   async accept(token, password, confirmPassword) {
     return this.client.post('invitations/accept/', {
       token,
       password,
       confirm_password: confirmPassword
+    });
+  }
+  
+  /**
+   * Verify OTP after invitation acceptance
+   * @param {string} email - User email
+   * @param {string} otpToken - 6-digit OTP code
+   * @returns {Promise} { success, message, user, access_token }
+   */
+  async verifyOTP(email, otpToken) {
+    return this.client.post('invitations/verify-otp/', {
+      email,
+      otp_token: otpToken
+    });
+  }
+  
+  /**
+   * Resend OTP for invitation verification
+   * @param {string} email - User email
+   * @returns {Promise} { success, message }
+   */
+  async resendOTP(email) {
+    return this.client.post('invitations/resend-otp/', {
+      email
     });
   }
 }

@@ -115,7 +115,6 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState([]);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [selectedProject, setSelectedProject] = useState("");
   const [timeRange, setTimeRange] = useState("1d"); // NEW: Time range filter
   const [maxEmails, setMaxEmails] = useState([15]); // NEW: Max emails slider
   const [importResults, setImportResults] = useState(null);
@@ -169,11 +168,6 @@ export default function Dashboard() {
   }, [loadDashboardData]);
 
   const handleGmailImport = async () => {
-    if (!selectedProject || selectedProject === '') {
-      addNotification('warning', 'Please select a project first');
-      return;
-    }
-
     setIsImporting(true);
     setImportResults(null);
 
@@ -198,8 +192,8 @@ export default function Dashboard() {
 
       console.log('Gmail sync query:', query, 'Max emails:', maxEmails[0]);
 
-      // Call Gmail.sync with custom parameters
-      const result = await Gmail.sync(selectedProject, query, maxEmails[0]);
+      // Call Gmail.sync WITHOUT project_id - AI handles assignment
+      const result = await Gmail.sync(null, query, maxEmails[0]);
       
       if (result.success) {
         setImportResults(result);
@@ -224,7 +218,6 @@ export default function Dashboard() {
         }
         
         setShowImportDialog(false);
-        setSelectedProject("");
         setTimeRange("1d");
         setMaxEmails([15]);
       } else {
@@ -289,150 +282,122 @@ export default function Dashboard() {
               </Link>
 
               {user?.role === 'admin' && (
-                <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={`w-full sm:w-auto ${theme.text} border-slate-300 hover:bg-slate-50 hover:border-slate-400 px-8 py-3 rounded-2xl font-semibold tracking-tight transition-all duration-300 hover:scale-105`}
-                    >
-                      <Mail className="w-5 h-5 mr-3" />
-                      Import from Gmail
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-[550px] p-6 bg-white rounded-lg shadow-xl">
-                    <DialogHeader>
-                      <DialogTitle className="text-2xl font-bold text-gray-800">Import Gmail Tickets</DialogTitle>
-                      <DialogDescription className="text-gray-600 mt-2">
-                        Configure your import settings to fetch support emails from Gmail.
-                      </DialogDescription>
-                    </DialogHeader>
+              <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={`w-full sm:w-auto ${theme.text} border-slate-300 hover:bg-slate-50 hover:border-slate-400 px-8 py-3 rounded-2xl font-semibold tracking-tight transition-all duration-300 hover:scale-105`}
+                  >
+                    <Mail className="w-5 h-5 mr-3" />
+                    Import from Gmail
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[550px] p-6 bg-white rounded-lg shadow-xl">
+                  <DialogHeader>
+                    <DialogTitle className="text-2xl font-bold text-gray-800">Import Gmail Tickets</DialogTitle>
+                    <DialogDescription className="text-gray-600 mt-2">
+                      AI will automatically detect projects and assign tickets intelligently.
+                    </DialogDescription>
+                  </DialogHeader>
 
-                    <div className="mt-6 space-y-6">
-                      {/* Project Selection */}
-                      <div>
-                        <Label htmlFor="project" className="text-sm font-medium text-gray-700 mb-2">
-                          Select Project *
-                        </Label>
-                        <Select value={selectedProject} onValueChange={setSelectedProject}>
-                          <SelectTrigger className="w-full mt-2">
-                            <SelectValue placeholder="Choose a project..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {projects.map(project => (
-                              <SelectItem key={project.id} value={project.id.toString()}>
-                                {project.display_name || project.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-gray-500 mt-1">
-                          All imported tickets will be assigned to this project
-                        </p>
-                      </div>
+                  <div className="mt-6 space-y-6">
+                    {/* Time Range Selection */}
+                    <div>
+                      <Label htmlFor="timeRange" className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Time Range
+                      </Label>
+                      <Select value={timeRange} onValueChange={setTimeRange}>
+                        <SelectTrigger className="w-full mt-2">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {timeRangeOptions.map(option => (
+                            <SelectItem key={option.value} value={option.value}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{option.label}</span>
+                                <span className="text-xs text-gray-500">{option.description}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                      {/* Time Range Selection */}
-                      <div>
-                        <Label htmlFor="timeRange" className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                          <Calendar className="w-4 h-4 mr-2" />
-                          Time Range
-                        </Label>
-                        <Select value={timeRange} onValueChange={setTimeRange}>
-                          <SelectTrigger className="w-full mt-2">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {timeRangeOptions.map(option => (
-                              <SelectItem key={option.value} value={option.value}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">{option.label}</span>
-                                  <span className="text-xs text-gray-500">{option.description}</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Only check emails from this time period
-                        </p>
-                      </div>
-
-                      {/* Max Emails Slider */}
-                      <div>
-                        <Label htmlFor="maxEmails" className="text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
-                          <span className="flex items-center">
-                            <Hash className="w-4 h-4 mr-2" />
-                            Maximum Emails
-                          </span>
-                          <span className="text-blue-600 font-bold">{maxEmails[0]}</span>
-                        </Label>
-                        <Slider
-                          id="maxEmails"
-                          min={5}
-                          max={50}
-                          step={5}
-                          value={maxEmails}
-                          onValueChange={setMaxEmails}
-                          className="mt-4"
-                        />
-                        <div className="flex justify-between text-xs text-gray-500 mt-2">
-                          <span>5 emails</span>
-                          <span>50 emails</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Limit the number of emails to process
-                        </p>
-                      </div>
-
-                      {/* Info Box */}
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <h4 className="font-medium text-blue-900 mb-2 flex items-center">
-                          <Info className="w-4 h-4 mr-2" />
-                          How it works
-                        </h4>
-                        <ul className="text-sm text-blue-800 space-y-1">
-                          <li>• AI analyzes email subject and content</li>
-                          <li>• Only imports genuine support requests</li>
-                          <li>• Skips duplicates and non-support emails</li>
-                          <li>• Creates guest users for new senders</li>
-                          <li>• Marks imported emails as read</li>
-                        </ul>
+                    {/* Max Emails Slider */}
+                    <div>
+                      <Label htmlFor="maxEmails" className="text-sm font-medium text-gray-700 mb-2 flex items-center justify-between">
+                        <span className="flex items-center">
+                          <Hash className="w-4 h-4 mr-2" />
+                          Maximum Emails
+                        </span>
+                        <span className="text-blue-600 font-bold">{maxEmails[0]}</span>
+                      </Label>
+                      <Slider
+                        id="maxEmails"
+                        min={5}
+                        max={50}
+                        step={5}
+                        value={maxEmails}
+                        onValueChange={setMaxEmails}
+                        className="mt-4"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-2">
+                        <span>5 emails</span>
+                        <span>50 emails</span>
                       </div>
                     </div>
 
-                    <DialogFooter className="mt-6 flex justify-end gap-2">
-                      <Button 
-                        variant="outline" 
-                        onClick={() => {
-                          setShowImportDialog(false);
-                          setSelectedProject("");
-                          setTimeRange("1d");
-                          setMaxEmails([15]);
-                        }} 
-                        disabled={isImporting}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={handleGmailImport} 
-                        disabled={isImporting || !selectedProject}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        {isImporting ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Importing...
-                          </>
-                        ) : (
-                          <>
-                            <Mail className="w-4 h-4 mr-2" />
-                            Import Emails
-                          </>
-                        )}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              )}
+                    {/* Info Box */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+                        <Info className="w-4 h-4 mr-2" />
+                        Smart Import Features
+                      </h4>
+                      <ul className="text-sm text-blue-800 space-y-1">
+                        <li>• AI filters out promotions and social emails</li>
+                        <li>• Auto-matches senders with existing clients</li>
+                        <li>• Detects project from email content</li>
+                        <li>• Assigns to user's project if they have one</li>
+                        <li>• Leaves unassigned if user has multiple projects</li>
+                        <li>• Creates guest accounts for new senders</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <DialogFooter className="mt-6 flex justify-end gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setShowImportDialog(false);
+                        setTimeRange("1d");
+                        setMaxEmails([15]);
+                      }} 
+                      disabled={isImporting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleGmailImport} 
+                      disabled={isImporting}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {isImporting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Importing...
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-4 h-4 mr-2" />
+                          Import Emails
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
             </div>
           </div>
 
