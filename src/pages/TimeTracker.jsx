@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, Play, StopCircle, Trash2, Calendar, Timer,
-  BarChart2, Grid, Download, AlertTriangle, Target, Bell
+  BarChart2, Grid, Download, AlertTriangle, Target
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
@@ -11,7 +11,6 @@ import {
 import { useBranding } from '../components/branding/BrandingProvider';
 import { useUser } from '../components/auth/UserProvider';
 import { Ticket } from '@/api/entities';
-import { CheckCircle, XCircle, AlertCircle, X } from 'lucide-react';
 
 // LocalStorage key
 const STORAGE_KEY = 'auradesk_time_entries_v1';
@@ -43,20 +42,26 @@ export default function TimeTrackerPage() {
   const [ticketBudgets, setTicketBudgets] = useState({}); // { ticketId: budgetHours }
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetTicketId, setBudgetTicketId] = useState('');
-  const [budgetHours, setBudgetHours] = useState('');
+  const [budgetTime, setBudgetTime] = useState(''); // HH:MM:SS format
 
-  // ADD: Toast state
-  const [toasts, setToasts] = useState([]);
+  // ADD: Helper to convert HH:MM:SS to decimal hours
+  const convertBudgetToHours = (timeString) => {
+    if (!timeString) return '0';
+    const parts = timeString.split(':');
+    const hours = parseInt(parts[0] || 0);
+    const minutes = parseInt(parts[1] || 0);
+    const seconds = parseInt(parts[2] || 0);
+    return (hours + (minutes / 60) + (seconds / 3600)).toFixed(2);
+  };
 
-  // ADD: Notification settings state
-  const [notificationSettings, setNotificationSettings] = useState({
-    browserNotifications: true,
-    emailNotifications: false,
-    budgetWarningThreshold: 80,
-    dailySummary: false
-  });
-
-  const [notifications, setNotifications] = useState([]);
+  // ADD: Convert decimal hours back to HH:MM:SS format
+  const convertHoursToTimer = (decimalHours) => {
+    const totalSeconds = Math.round(parseFloat(decimalHours) * 3600);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  };
 
   // Load tickets
   useEffect(() => {
@@ -176,17 +181,6 @@ export default function TimeTrackerPage() {
     setSelectedTicket('');
     setIsTimerRunning(false);
     setTimerSeconds(0);
-
-    // Show toast
-    showToast(`Time entry logged: ${hoursSpent}h on #${selectedTicket}`, 'success');
-    
-    // Check budget and show warning
-    const warning = getBudgetWarning(String(selectedTicket));
-    if (warning?.type === 'danger') {
-      showToast(warning.message, 'error');
-    } else if (warning?.type === 'warning') {
-      showToast(warning.message, 'warning');
-    }
   };
 
   const handleDeleteEntry = (id) => {
@@ -246,6 +240,79 @@ export default function TimeTrackerPage() {
     }
   }, [ticketBudgets]);
 
+  // ADD: Budget countdown state
+  const [budgetCountdowns, setBudgetCountdowns] = useState({}); // { ticketId: remainingSeconds }
+  const [notifiedBudgets, setNotifiedBudgets] = useState(new Set()); // Track which budgets already notified
+
+  // ADD: Load budget countdowns from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('auradesk_budget_countdowns_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setBudgetCountdowns(parsed);
+      }
+    } catch (e) {
+      console.warn('Failed to parse budget countdowns', e);
+    }
+  }, []);
+
+  // ADD: Persist budget countdowns
+  useEffect(() => {
+    try {
+      localStorage.setItem('auradesk_budget_countdowns_v1', JSON.stringify(budgetCountdowns));
+    } catch (e) {
+      console.warn('Failed to persist budget countdowns', e);
+    }
+  }, [budgetCountdowns]);
+
+  // ADD: Countdown timer effect
+  useEffect(() => {
+    let interval;
+    const activeCountdowns = Object.keys(budgetCountdowns).some(id => budgetCountdowns[id] > 0);
+    
+    if (activeCountdowns) {
+      interval = setInterval(() => {
+        setBudgetCountdowns(prev => {
+          const updated = { ...prev };
+          Object.keys(updated).forEach(ticketId => {
+            if (updated[ticketId] > 0) {
+              updated[ticketId] -= 1;
+              
+              // Trigger notification when reaches zero
+              if (updated[ticketId] === 0 && !notifiedBudgets.has(ticketId)) {
+                const ticket = tickets.find(t => String(t.id) === ticketId);
+                
+                // Show browser notification
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  new Notification('Time Budget Up! ⏰', {
+                    body: `Budget for ticket #${ticketId} - ${ticket?.title || 'Unknown'} has expired!`,
+                    icon: '/favicon.ico'
+                  });
+                }
+                
+                // Show in-app alert
+                alert(`⏰ Time's up!\n\nTicket #${ticketId} - ${ticket?.title || 'Unknown'}\n\nBudget has been exhausted.`);
+                
+                setNotifiedBudgets(prev => new Set([...prev, ticketId]));
+              }
+            }
+          });
+          return updated;
+        });
+      }, 1000);
+    }
+    
+    return () => interval && clearInterval(interval);
+  }, [notifiedBudgets, tickets]);
+
+  // ADD: Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
   // ADD: Calculate ticket usage and warnings
   const ticketStats = useMemo(() => {
     const stats = {};
@@ -278,14 +345,39 @@ export default function TimeTrackerPage() {
   }, [timeEntries, ticketBudgets]);
 
   const handleSetBudget = () => {
-    if (!budgetTicketId || !budgetHours) return;
+    if (!budgetTicketId || !budgetTime) return;
+    
+    // Validate format
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(budgetTime)) {
+      alert('Invalid time format. Use HH:MM:SS');
+      return;
+    }
+    
+    // Convert to hours for storage
+    const hoursValue = convertBudgetToHours(budgetTime);
+    const totalSeconds = Math.round(parseFloat(hoursValue) * 3600);
+    
     setTicketBudgets(prev => ({
       ...prev,
-      [budgetTicketId]: budgetHours
+      [budgetTicketId]: hoursValue
     }));
+    
+    // Initialize countdown in seconds
+    setBudgetCountdowns(prev => ({
+      ...prev,
+      [budgetTicketId]: totalSeconds
+    }));
+    
+    // Remove from notified set to allow re-notification
+    setNotifiedBudgets(prev => {
+      const updated = new Set(prev);
+      updated.delete(budgetTicketId);
+      return updated;
+    });
+    
     setShowBudgetModal(false);
     setBudgetTicketId('');
-    setBudgetHours('');
+    setBudgetTime('');
   };
 
   const handleRemoveBudget = (ticketId) => {
@@ -429,87 +521,6 @@ export default function TimeTrackerPage() {
   }, [dayHoursChart]);
 
   const pieColors = ['#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4'];
-
-  // Add notification permission request
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  // Add notification helper
-  const sendNotification = (title, body, type = 'info') => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, {
-        body,
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
-        tag: `time-tracker-${type}`,
-        requireInteraction: type === 'danger'
-      });
-    }
-  };
-
-  // Sound notification helper
-  const playNotificationSound = (type = 'info') => {
-    const audio = new Audio(
-      type === 'danger' ? '/sounds/alert-danger.mp3' :
-      type === 'warning' ? '/sounds/alert-warning.mp3' :
-      '/sounds/alert-info.mp3'
-    );
-    audio.volume = 0.3;
-    audio.play().catch(() => {}); // Ignore if blocked
-  };
-
-  // Enhance budget checking with notifications
-  useEffect(() => {
-    Object.values(ticketStats).forEach(stat => {
-      if (stat.isOverBudget && !sessionStorage.getItem(`notified-over-${stat.ticketId}`)) {
-        sendNotification(
-          '⚠️ Budget Exceeded',
-          `Ticket #${stat.ticketId} is over budget by ${Math.abs(stat.remaining).toFixed(2)}h`,
-          'danger'
-        );
-        playNotificationSound('danger');
-        sessionStorage.setItem(`notified-over-${stat.ticketId}`, 'true');
-      } else if (stat.isNearLimit && !sessionStorage.getItem(`notified-near-${stat.ticketId}`)) {
-        sendNotification(
-          '⚡ Budget Warning',
-          `Ticket #${stat.ticketId} is at ${stat.percentage.toFixed(0)}% (${stat.remaining.toFixed(2)}h remaining)`,
-          'warning'
-        );
-        playNotificationSound('warning');
-        sessionStorage.setItem(`notified-near-${stat.ticketId}`, 'true');
-      }
-    });
-  }, [ticketStats]);
-
-  // Load notification settings from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('auradesk_notification_settings');
-    if (saved) setNotificationSettings(JSON.parse(saved));
-  }, []);
-
-  // Persist notification settings
-  useEffect(() => {
-    try {
-      localStorage.setItem('auradesk_notification_settings', JSON.stringify(notificationSettings));
-    } catch (e) {
-      console.warn('Failed to persist notification settings', e);
-    }
-  }, [notificationSettings]);
-
-  const addNotification = (message, type, ticketId = null) => {
-    const notification = {
-      id: crypto.randomUUID(),
-      message,
-      type,
-      ticketId,
-      timestamp: new Date().toISOString(),
-      read: false
-    };
-    setNotifications(prev => [notification, ...prev]);
-  };
 
   if (isLoadingTickets) {
     return (
@@ -1144,22 +1155,37 @@ export default function TimeTrackerPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Budget (hours)</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Budget Time (HH:MM:SS)</label>
                 <input
-                  type="number"
-                  step="0.5"
-                  value={budgetHours}
-                  onChange={e => setBudgetHours(e.target.value)}
-                  placeholder="e.g. 40"
-                  className="w-full border border-slate-200 rounded-xl p-3 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  type="text"
+                  value={budgetTime}
+                  onChange={e => setBudgetTime(e.target.value)}
+                  placeholder="e.g. 40:00:00"
+                  pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
+                  className="w-full border border-slate-200 rounded-xl p-3 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
                 />
+                <p className="text-xs text-slate-500 mt-2">
+                  Format: HH:MM:SS (e.g., 40:00:00 = 40 hours, 08:30:00 = 8.5 hours)
+                </p>
+                
+                {/* Preview of converted value */}
+                {budgetTime && /^\d{2}:\d{2}:\d{2}$/.test(budgetTime) && (
+                  <div className="mt-3 px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200">
+                    <div className="text-xs text-slate-600">
+                      <span className="font-medium">Converts to:</span> {' '}
+                      <span className="font-bold text-indigo-700">
+                        {convertBudgetToHours(budgetTime)}h
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleSetBudget}
-                disabled={!budgetTicketId || !budgetHours}
+                disabled={!budgetTicketId || !budgetTime}
                 className={`flex-1 py-3 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold shadow-lg ${theme.shadow} hover:opacity-90 disabled:opacity-50`}
               >
                 Set Budget
@@ -1168,7 +1194,7 @@ export default function TimeTrackerPage() {
                 onClick={() => {
                   setShowBudgetModal(false);
                   setBudgetTicketId('');
-                  setBudgetHours('');
+                  setBudgetTime('');
                 }}
                 className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200"
               >
@@ -1178,80 +1204,6 @@ export default function TimeTrackerPage() {
           </div>
         </div>
       )}
-
-      {/* Toasts Container */}
-      {toasts.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-sm">
-          {toasts.map(toast => (
-            <div
-              key={toast.id}
-              className={`rounded-xl shadow-lg p-4 flex items-start gap-3 backdrop-blur-xl border animate-in slide-in-from-right ${
-                toast.type === 'success' ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800' :
-                toast.type === 'error' ? 'bg-red-50/95 border-red-200 text-red-800' :
-                'bg-amber-50/95 border-amber-200 text-amber-800'
-              }`}
-            >
-              {toast.type === 'success' && <CheckCircle className="w-5 h-5 flex-shrink-0" />}
-              {toast.type === 'error' && <XCircle className="w-5 h-5 flex-shrink-0" />}
-              {toast.type === 'warning' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
-              <p className="text-sm font-medium flex-1">{toast.message}</p>
-              <button
-                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
-                className="hover:opacity-70"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Notification Settings - new section */}
-      <div className="rounded-2xl border border-slate-200/60 bg-white p-6 mt-8">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">Notification Settings</h3>
-        <div className="space-y-4">
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={notificationSettings.browserNotifications}
-              onChange={e => setNotificationSettings(prev => ({
-                ...prev,
-                browserNotifications: e.target.checked
-              }))}
-              className="w-4 h-4 rounded"
-            />
-            <span className="text-sm font-medium text-slate-700">Browser Notifications</span>
-          </label>
-          
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Budget Warning Threshold
-            </label>
-            <input
-              type="number"
-              min="50"
-              max="100"
-              value={notificationSettings.budgetWarningThreshold}
-              onChange={e => setNotificationSettings(prev => ({
-                ...prev,
-                budgetWarningThreshold: parseInt(e.target.value)
-              }))}
-              className="w-24 px-3 py-2 border border-slate-200 rounded-lg"
-            />
-            <span className="text-sm text-slate-500 ml-2">%</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bell Icon for Notifications */}
-      <button className="relative p-2 rounded-xl hover:bg-slate-100">
-        <Bell className="w-5 h-5 text-slate-600" />
-        {notifications.filter(n => !n.read).length > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-            {notifications.filter(n => !n.read).length}
-          </span>
-        )}
-      </button>
     </div>
   );
 }
