@@ -9,8 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, X, FileText, Image as ImageIcon, Send } from "lucide-react";
+import { Upload, X, FileText, Image as ImageIcon, Send, Mail, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function CreateTicket() {
   const navigate = useNavigate();
@@ -31,55 +39,38 @@ export default function CreateTicket() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Email import modal state
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailContent, setEmailContent] = useState("");
+  const [isParsing, setIsParsing] = useState(false);
+
   const loadInitialData = useCallback(async () => {
-    if (!user) return; // Guard to ensure user is available
+    if (!user) return;
     try {
       if (user.role === 'admin') {
         const allProjects = await Project.list();
-        console.log("All projects:", allProjects); // Debug log
         
-        // Handle paginated response format for projects too
         const projectsArray = Array.isArray(allProjects) 
           ? allProjects 
           : (allProjects?.results || []);
           
         setProjects(projectsArray);
         
-        // Try different approaches to get users
         let allClients = [];
         try {
-          // Method 1: Try the original filter approach
           allClients = await User.filter({ role: 'user' });
         } catch (filterError) {
-          console.warn("User.filter failed, trying alternative approaches:", filterError);
-          
           try {
-            // Method 2: Try getting all users and filtering client-side
             const allUsers = await User.list();
-            console.log("All users:", allUsers); // Debug log
-            
-            // Handle paginated response format
             const usersArray = Array.isArray(allUsers) 
               ? allUsers 
               : (allUsers?.results || []);
-              
             allClients = usersArray.filter(u => u.role === 'user');
           } catch (listError) {
-            console.warn("User.list failed:", listError);
-            
-            try {
-              // Method 3: Try a different filter syntax
-              allClients = await User.query({ role: 'user' });
-            } catch (queryError) {
-              console.warn("User.query failed:", queryError);
-              // Method 4: Last resort - empty array with error message
-              allClients = [];
-              throw new Error("Unable to load clients using any available method");
-            }
+            allClients = [];
           }
         }
         
-        console.log("Loaded clients:", allClients); // Debug log
         setClients(Array.isArray(allClients) ? allClients : []);
         
         if (projectsArray.length > 0) {
@@ -90,17 +81,14 @@ export default function CreateTicket() {
         }
       } else {
         if (user.projects && user.projects.length > 0) {
-          // Fetch projects by ID, Project.filter({ id }) usually returns an array
           const userProjectPromises = user.projects.map(async (id) => {
             const projectResponse = await Project.filter({ id });
-            // Handle both array and paginated response formats
             return Array.isArray(projectResponse) 
               ? projectResponse 
               : (projectResponse?.results || []);
           });
           
           const userProjects = (await Promise.all(userProjectPromises)).flat();
-          console.log("User projects:", userProjects); // Debug log
           setProjects(userProjects);
           
           if (userProjects.length > 0) {
@@ -112,14 +100,14 @@ export default function CreateTicket() {
       console.error("Failed to load initial data:", err);
       setError(`Failed to load initial data: ${err.message}`);
     }
-  }, [user]); // Depend on 'user'
+  }, [user]);
 
   useEffect(() => {
     loadInitialData();
-    if (user && user.role !== 'admin') { // user check is important here if loadInitialData doesn't handle initial null user
+    if (user && user.role !== 'admin') {
       setFormData(prev => ({ ...prev, client_email: user.email }));
     }
-  }, [loadInitialData, user]); // Depend on 'loadInitialData' and 'user'
+  }, [loadInitialData, user]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -154,6 +142,77 @@ export default function CreateTicket() {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleParseEmail = async () => {
+    if (!emailContent.trim()) {
+      setError("Please paste email content");
+      return;
+    }
+
+    setIsParsing(true);
+    setError(null);
+
+    try {
+      // Use AI to parse the email
+      const response = await fetch('http://127.0.0.1:8000/api/integrations/Core/InvokeLLM/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({
+          prompt: `You are a support ticket assistant. Parse the following email and extract ticket information.
+
+Email Content:
+${emailContent}
+
+Extract and return ONLY a JSON object with these fields:
+- title: A clear, concise ticket title (max 100 chars)
+- description: The full email content, cleaned up
+- priority: One of: low, medium, high, urgent (analyze urgency from content)
+- category: One of: bug_report, feature_request, general_inquiry, technical_support, feedback
+
+Return ONLY valid JSON, no other text.`,
+          model: 'gpt-4',
+          temperature: 0.3,
+          max_tokens: 1000
+        })
+      });
+
+      const data = await response.json();
+      
+      // Parse AI response
+      let parsedData;
+      try {
+        parsedData = JSON.parse(data.response.trim());
+      } catch (e) {
+        // Fallback
+        parsedData = {
+          title: emailContent.substring(0, 100),
+          description: emailContent,
+          priority: 'medium',
+          category: 'general_inquiry'
+        };
+      }
+
+      // Update form with parsed data
+      setFormData(prev => ({
+        ...prev,
+        title: parsedData.title || prev.title,
+        description: parsedData.description || prev.description,
+        priority: parsedData.priority || prev.priority,
+        category: parsedData.category || prev.category
+      }));
+
+      setShowEmailModal(false);
+      setEmailContent("");
+    } catch (error) {
+      console.error("Error parsing email:", error);
+      setError("Failed to parse email. Please try again or fill the form manually.");
+    }
+
+    setIsParsing(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -182,13 +241,23 @@ export default function CreateTicket() {
   return (
     <div className="p-4 md:p-8 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       <div className="max-w-3xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-800 via-indigo-800 to-blue-800 bg-clip-text text-transparent leading-tight">
-            Create New Ticket
-          </h1>
-          <p className="text-slate-600 text-lg font-medium mt-2">
-            Report an issue, request a feature, or share feedback.
-          </p>
+        <div className="mb-8 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-slate-800 via-indigo-800 to-blue-800 bg-clip-text text-transparent leading-tight">
+              Create New Ticket
+            </h1>
+            <p className="text-slate-600 text-lg font-medium mt-2">
+              Report an issue, request a feature, or share feedback.
+            </p>
+          </div>
+          <Button
+            onClick={() => setShowEmailModal(true)}
+            variant="outline"
+            className="border-blue-300 text-blue-700 hover:bg-blue-50"
+          >
+            <Mail className="w-4 h-4 mr-2" />
+            Paste Email
+          </Button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -296,7 +365,6 @@ export default function CreateTicket() {
                 </div>
               </div>
 
-              {/* Feature Request Disclaimer */}
               {formData.category === 'feature_request' && (
                 <Alert className="bg-amber-50 border-amber-200 text-amber-800">
                   <div className="flex items-start gap-3">
@@ -405,6 +473,68 @@ export default function CreateTicket() {
             </Button>
           </div>
         </form>
+
+        {/* Email Import Modal */}
+        <Dialog open={showEmailModal} onOpenChange={setShowEmailModal}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-blue-600" />
+                Import from Email
+              </DialogTitle>
+              <DialogDescription>
+                Paste your email content below. AI will extract the ticket details automatically.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="py-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+                <Sparkles className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-blue-800">
+                  Our AI will analyze the email and automatically fill in the title, description, priority, and category fields.
+                </p>
+              </div>
+              
+              <Textarea
+                value={emailContent}
+                onChange={(e) => setEmailContent(e.target.value)}
+                placeholder="Paste the full email content here, including subject and body..."
+                rows={12}
+                className="bg-white border-gray-300 font-mono text-sm"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowEmailModal(false);
+                  setEmailContent("");
+                }}
+                disabled={isParsing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleParseEmail}
+                disabled={isParsing || !emailContent.trim()}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isParsing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    Parsing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Parse with AI
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

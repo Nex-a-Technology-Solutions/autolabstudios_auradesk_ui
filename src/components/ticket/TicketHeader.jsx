@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { User } from "@/api/entities";
+import { User, Project } from "@/api/entities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar, User as UserIcon, Tag, Flag, AlertCircle, MessageSquare, Bell, Clock } from "lucide-react";
+import { Calendar, User as UserIcon, Tag, Flag, AlertCircle, MessageSquare, Bell, Clock, Building } from "lucide-react";
 import { format } from "date-fns";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert } from "@/components/ui/alert";
 
 const statusColors = {
   open: "bg-blue-50 text-blue-700 border-blue-200",
@@ -46,10 +46,12 @@ export default function TicketHeader({
   messages = [],
   onStatusUpdate, 
   onAssignmentUpdate, 
+  onProjectUpdate,
   onAddNotification,
   userRole 
 }) {
   const [staffMembers, setStaffMembers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [showNotificationForm, setShowNotificationForm] = useState(false);
   const [notificationText, setNotificationText] = useState("");
 
@@ -63,8 +65,8 @@ export default function TicketHeader({
         message.message_type === "assignment" ||
         (message.message_type === "status_change" && message.sender_name?.includes("Admin"))
       )
-      .slice(-2) // Get last 2 updates
-      .reverse(); // Show most recent first
+      .slice(-2)
+      .reverse();
     
     return adminUpdates;
   };
@@ -74,25 +76,22 @@ export default function TicketHeader({
   useEffect(() => {
     if (userRole === 'admin') {
       loadStaffMembers();
+      loadProjects();
     }
   }, [userRole]);
 
   const loadStaffMembers = async () => {
     try {
-      // Try multiple approaches to load admin users
       let adminUsers = [];
       
       try {
         const staffResponse = await User.filter({ role: 'user' });
-        console.log("Staff response:", staffResponse);
         adminUsers = extractArrayFromResponse(staffResponse);
       } catch (filterError) {
         console.warn("User.filter failed, trying alternative approach:", filterError);
         
         try {
-          // Fallback: get all users and filter client-side
           const allUsersResponse = await User.list();
-          console.log("All users response:", allUsersResponse);
           const allUsers = extractArrayFromResponse(allUsersResponse);
           adminUsers = allUsers.filter(u => u.role === 'admin');
         } catch (listError) {
@@ -101,11 +100,21 @@ export default function TicketHeader({
         }
       }
       
-      console.log("Final admin users:", adminUsers);
       setStaffMembers(adminUsers);
     } catch (error) {
       console.error("Error loading staff members:", error);
       setStaffMembers([]);
+    }
+  };
+
+  const loadProjects = async () => {
+    try {
+      const projectResponse = await Project.list();
+      const projectData = extractArrayFromResponse(projectResponse);
+      setProjects(projectData);
+    } catch (error) {
+      console.error("Error loading projects:", error);
+      setProjects([]);
     }
   };
 
@@ -123,6 +132,11 @@ export default function TicketHeader({
 
   const handleQuickClose = () => {
     onStatusUpdate('closed');
+  };
+
+  const getProjectName = (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    return project ? (project.display_name || project.name) : 'Unassigned';
   };
 
   return (
@@ -149,6 +163,12 @@ export default function TicketHeader({
               <span>{ticket.client_email?.split('@')[0] || 'Unknown'}</span>
             </div>
             <div className="flex items-center gap-2">
+              <Building className="w-4 h-4" />
+              <span className={!ticket.project_id ? "text-orange-600 font-semibold" : ""}>
+                {getProjectName(ticket.project_id)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4" />
               <span>Created {format(new Date(ticket.created_date), "MMM d, yyyy 'at' h:mm a")}</span>
             </div>
@@ -166,7 +186,7 @@ export default function TicketHeader({
         {/* Admin Controls */}
         {userRole === 'admin' && (
           <div className="flex flex-col gap-3 w-full lg:w-auto">
-            {/* Status and Assignment Controls */}
+            {/* Status, Assignment, and Project Controls */}
             <div className="flex flex-col sm:flex-row gap-3">
               <Select value={ticket.status} onValueChange={onStatusUpdate}>
                 <SelectTrigger className="w-full sm:w-40 bg-white border-gray-300 text-gray-900">
@@ -177,6 +197,24 @@ export default function TicketHeader({
                   <SelectItem value="in_progress">In Progress</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
                   <SelectItem value="closed">Closed</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select 
+                value={ticket.project_id || "unassigned"} 
+                onValueChange={(value) => onProjectUpdate(value === "unassigned" ? null : value)}
+              >
+                <SelectTrigger className="w-full sm:w-48 bg-white border-gray-300 text-gray-900">
+                  <Building className="w-4 h-4 mr-2" />
+                  <SelectValue placeholder="Assign project..." />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-gray-200">
+                  <SelectItem value="unassigned">No Project</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.display_name || project.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 

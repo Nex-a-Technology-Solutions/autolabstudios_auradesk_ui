@@ -68,6 +68,17 @@ export default function TicketDetail() {
     setIsLoading(false);
   }, [ticketId, navigate, user]);
 
+  const handleProjectUpdate = async (projectId) => {
+    try {
+      await Ticket.update(ticket.id, { project_id: projectId });
+      // Reload ticket data
+      loadTicketData(); // Changed from loadTicket()
+    } catch (error) {
+      console.error('Error updating project:', error);
+      alert('Failed to update project');
+    }
+  };
+
   useEffect(() => {
     if (!isUserLoading && user) {
       loadTicketData();
@@ -309,14 +320,15 @@ export default function TicketDetail() {
         )}
 
         {ticket && (
-          <TicketHeader 
-            ticket={ticket}
-            messages={messages}
-            onStatusUpdate={updateTicketStatus}
-            onAssignmentUpdate={updateTicketAssignment}
-            onAddNotification={addNotification}
-            userRole={user?.role} 
-          />
+          <TicketHeader
+          ticket={ticket}
+          messages={messages}
+          onStatusUpdate={updateTicketStatus}
+          onAssignmentUpdate={updateTicketAssignment}
+          onProjectUpdate={handleProjectUpdate}
+          onAddNotification={addNotification}
+          userRole={user?.role}
+        />
         )}
 
         <div className="bg-white border border-gray-200 rounded-xl flex-1 flex flex-col mb-6 shadow-sm">

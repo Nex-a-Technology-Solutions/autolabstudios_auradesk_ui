@@ -67,6 +67,26 @@ class GmailIntegration {
       message_id: messageId 
     });
   }
+
+  async parseAndCreateTicket(emailContent, clientEmail, projectId = null) {
+    console.log('=== Gmail.parseAndCreateTicket called ===');
+    console.log('Arguments:', { emailContent: emailContent?.substring(0, 50) + '...', clientEmail, projectId });
+    
+    const payload = {
+      email_content: emailContent,
+      client_email: clientEmail
+    };
+    
+    if (projectId) {
+      payload.project_id = projectId;
+    }
+    
+    console.log('✅ Calling endpoint: integrations/Gmail/parse-email/');
+    
+    const result = await this.client.post('integrations/Gmail/parse-email/', payload);
+    console.log('API Response:', result);
+    return result;
+  }
 }
 
 // GoTo Integration Class

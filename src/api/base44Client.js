@@ -165,7 +165,16 @@ class DjangoApiClient {
       }
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const responseText = await response.text();
+        
+        let errorData = {};
+        try {
+          errorData = JSON.parse(responseText);
+        } catch (e) {
+          console.error('Could not parse error as JSON');
+        }
+        
+        console.error('Backend error details:', errorData);
         const errorMessage = errorData.error || errorData.detail || `API Error (${response.status})`;
         throw new Error(errorMessage);
       }
@@ -190,6 +199,10 @@ class DjangoApiClient {
     return this.makeRequest('POST', endpoint, data);
   }
   
+  async patch(endpoint, data = null) {
+    return this.makeRequest('PATCH', endpoint, data);
+  }
+
   async put(endpoint, data = null) {
     return this.makeRequest('PUT', endpoint, data);
   }
@@ -247,7 +260,7 @@ class Entity {
   }
   
   async update(id, data) {
-    return this.client.put(`entities/${this.entityName}/${id}/`, data);
+    return this.client.patch(`entities/${this.entityName}/${id}/`, data);
   }
   
   async delete(id) {
