@@ -386,6 +386,20 @@ export default function TimeTrackerPage() {
       delete updated[ticketId];
       return updated;
     });
+    
+    // Also remove countdown
+    setBudgetCountdowns(prev => {
+      const updated = { ...prev };
+      delete updated[ticketId];
+      return updated;
+    });
+    
+    // Remove from notified set
+    setNotifiedBudgets(prev => {
+      const updated = new Set(prev);
+      updated.delete(ticketId);
+      return updated;
+    });
   };
 
   const getBudgetWarning = (ticketId) => {
@@ -1046,17 +1060,25 @@ export default function TimeTrackerPage() {
                 {Object.entries(ticketBudgets).map(([ticketId, budget]) => {
                   const stat = ticketStats[ticketId];
                   const percentage = stat ? (stat.totalHours / parseFloat(budget)) * 100 : 0;
+                  const remainingSeconds = budgetCountdowns[ticketId] || 0;
+                  const countdownFormatted = formatTimer(remainingSeconds);
+                  const isTimeUp = remainingSeconds === 0;
+                  
                   return (
                     <div
                       key={ticketId}
-                      className="rounded-2xl border border-slate-200/60 bg-white p-6"
+                      className={`rounded-2xl border-2 transition-all ${
+                        isTimeUp 
+                          ? 'border-red-300 bg-red-50' 
+                          : 'border-slate-200/60 bg-white'
+                      } p-6`}
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-sm font-bold text-slate-800">#{ticketId}</span>
                             <span className="text-slate-700 font-semibold">
-                              {stat?.ticketTitle || 'Unknown Ticket'}
+                              {stat?.ticketTitle || tickets.find(t => String(t.id) === ticketId)?.title || 'Unknown Ticket'}
                             </span>
                           </div>
                           <div className="text-sm text-slate-500">
@@ -1069,6 +1091,34 @@ export default function TimeTrackerPage() {
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
+                      </div>
+
+                      {/* Countdown Display */}
+                      <div className={`mb-4 px-4 py-3 rounded-xl border-2 ${
+                        isTimeUp
+                          ? 'border-red-400 bg-red-100'
+                          : remainingSeconds < 3600 // Less than 1 hour
+                            ? 'border-amber-400 bg-amber-100'
+                            : 'border-indigo-200 bg-indigo-50'
+                      }`}>
+                        <div className="text-xs font-medium text-slate-600 mb-1">⏱️ Time Remaining (Countdown)</div>
+                        <div className={`text-2xl font-bold font-mono ${
+                          isTimeUp ? 'text-red-600' : 
+                          remainingSeconds < 3600 ? 'text-amber-600' :
+                          'text-indigo-600'
+                        }`}>
+                          {countdownFormatted}
+                        </div>
+                        {isTimeUp && (
+                          <div className="text-xs font-bold text-red-700 mt-1 flex items-center gap-1">
+                            ⏰ TIME UP!
+                          </div>
+                        )}
+                        {!isTimeUp && remainingSeconds < 3600 && (
+                          <div className="text-xs font-bold text-amber-700 mt-1">
+                            ⚠️ Less than 1 hour remaining!
+                          </div>
+                        )}
                       </div>
 
                       {stat && (
@@ -1105,19 +1155,26 @@ export default function TimeTrackerPage() {
                             </div>
                           )}
 
-                          {stat.isNearLimit && (
+                          {stat.isNearLimit && !stat.isOverBudget && (
                             <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm flex items-center gap-2">
                               <AlertTriangle className="w-4 h-4" />
-                              {stat.remaining.toFixed(2)}h remaining ({percentage.toFixed(0)}% used)
+                              {stat.remaining.toFixed(2)}h budget remaining ({percentage.toFixed(0)}% used)
                             </div>
                           )}
 
                           {!stat.isOverBudget && !stat.isNearLimit && (
                             <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
-                              {stat.remaining.toFixed(2)}h remaining
+                              {stat.remaining.toFixed(2)}h budget remaining
                             </div>
                           )}
                         </>
+                      )}
+
+                      {/* If no stat (no time logged yet) */}
+                      {!stat && (
+                        <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-sm">
+                          No time logged yet for this ticket
+                        </div>
                       )}
                     </div>
                   );
