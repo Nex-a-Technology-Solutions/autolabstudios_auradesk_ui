@@ -1,3 +1,7 @@
+//api/base44Client.js
+// This file implements the base44 client for interacting with the Django backend API.
+// It includes enhanced token management with auto-refresh and improved error handling.
+
 class DjangoApiClient {
   constructor(baseURL = 'https://auradesk-api.fly.dev', options = {}) {
     this.baseURL = baseURL;
@@ -664,6 +668,122 @@ class InvitationService {
   }
 }
 
+class TimeTrackerService {
+  constructor(client) {
+    this.client = client;
+  }
+
+  async listEntries(params = {}) {
+    return this.client.get('time-tracker/time-entries/', params);
+  }
+
+  async createEntry(data) {
+    return this.client.post('time-tracker/time-entries/', data);
+  }
+
+  async updateEntry(id, data) {
+    return this.client.patch(`time-tracker/time-entries/${id}/`, data);
+  }
+
+  async deleteEntry(id) {
+    return this.client.delete(`time-tracker/time-entries/${id}/`);
+  }
+
+  async bulkCreateEntries(entries) {
+    return this.client.post('time-tracker/time-entries/bulk_create/', entries);
+  }
+
+  async getMyEntries() {
+    return this.client.get('time-tracker/time-entries/my_entries/');
+  }
+
+  async getAnalytics(ticketId = null) {
+    const params = ticketId ? { ticket_id: ticketId } : {};
+    return this.client.get('time-tracker/time-entries/analytics/', params);
+  }
+
+  async exportCSV(params = {}) {
+    const url = new URL(`${this.client.baseURL}/api/time-tracker/time-entries/export_csv/`);
+    Object.keys(params).forEach(key => {
+      if (params[key] !== null && params[key] !== undefined) {
+        url.searchParams.append(key, params[key]);
+      }
+    });
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${this.client.token}` }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to export CSV');
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `time_entries_${Date.now()}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(downloadUrl);
+  }
+
+  async listBudgets(params = {}) {
+    return this.client.get('time-tracker/budgets/', params);
+  }
+
+  async createBudget(data) {
+    return this.client.post('time-tracker/budgets/', data);
+  }
+
+  async updateBudget(id, data) {
+    return this.client.patch(`time-tracker/budgets/${id}/`, data);
+  }
+
+  async deleteBudget(id) {
+    return this.client.delete(`time-tracker/budgets/${id}/`);
+  }
+
+  async getBudgetWarnings() {
+    return this.client.get('time-tracker/budgets/warnings/');
+  }
+
+  async listTasks(params = {}) {
+    return this.client.get('time-tracker/tasks/', params);
+  }
+
+  async createTask(data) {
+    return this.client.post('time-tracker/tasks/', data);
+  }
+
+  async updateTask(id, data) {
+    return this.client.patch(`time-tracker/tasks/${id}/`, data);
+  }
+
+  async deleteTask(id) {
+    return this.client.delete(`time-tracker/tasks/${id}/`);
+  }
+
+  async generateTasksFromTicket(ticketId) {
+    return this.client.post('time-tracker/tasks/generate_from_ticket/', {
+      ticket_id: ticketId
+    });
+  }
+
+  async bulkUpdateTaskStatus(taskIds, status) {
+    return this.client.post('time-tracker/tasks/bulk_update_status/', {
+      task_ids: taskIds,
+      status
+    });
+  }
+
+  async reorderTasks(taskOrders) {
+    return this.client.post('time-tracker/tasks/reorder/', {
+      task_orders: taskOrders
+    });
+  }
+}
+
 class AuraDeskClient {
   constructor(options = {}) {
     // Use the provided baseURL or default to local
@@ -683,6 +803,8 @@ class AuraDeskClient {
     };
 
     this.invitations = new InvitationService(this.apiClient);
+
+    this.timeTracker = new TimeTrackerService(this.apiClient);
   }
   
   setToken(token) {

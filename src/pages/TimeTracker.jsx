@@ -1,8 +1,11 @@
-// pages/TimeTrackerPage.jsx
+// ============================================================================
+// src/pages/TimeTrackerPage.jsx - UPDATED VERSION WITH BACKEND INTEGRATION
+// ============================================================================
+
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock, Plus, Play, StopCircle, Trash2, Calendar, Timer,
-  BarChart2, Grid, Download, AlertTriangle, Target
+  BarChart2, Grid, Download, AlertTriangle, Target, Sparkles, Loader2
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer,
@@ -11,9 +14,7 @@ import {
 import { useBranding } from '../components/branding/BrandingProvider';
 import { useUser } from '../components/auth/UserProvider';
 import { Ticket } from '@/api/entities';
-
-// LocalStorage key
-const STORAGE_KEY = 'auradesk_time_entries_v1';
+import { TimeTracker } from '@/api/entities';
 
 export default function TimeTrackerPage() {
   const { theme, branding } = useBranding();
@@ -23,14 +24,15 @@ export default function TimeTrackerPage() {
   const [timeEntries, setTimeEntries] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState('');
   const [description, setDescription] = useState('');
-  const [timeSpent, setTimeSpent] = useState(''); // Now stores "HH:MM:SS" format
+  const [timeSpent, setTimeSpent] = useState('');
   const [isLoadingTickets, setIsLoadingTickets] = useState(true);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Timer
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [activeTab, setActiveTab] = useState('entries');
-// ADD: filter & edit state
+
   const [filterText, setFilterText] = useState('');
   const [filterTicketId, setFilterTicketId] = useState('');
   const [editingEntryId, setEditingEntryId] = useState(null);
@@ -38,13 +40,14 @@ export default function TimeTrackerPage() {
   const [editingDescription, setEditingDescription] = useState('');
   const [editError, setEditError] = useState('');
 
-  // ADD: Budget state
-  const [ticketBudgets, setTicketBudgets] = useState({}); // { ticketId: budgetHours }
+  const [ticketBudgets, setTicketBudgets] = useState({});
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetTicketId, setBudgetTicketId] = useState('');
   const [budgetHours, setBudgetHours] = useState('');
+  const [isLoadingBudgets, setIsLoadingBudgets] = useState(true);
 
-  // Load tickets
+  const [budgetWarnings, setBudgetWarnings] = useState([]);
+
   useEffect(() => {
     const loadTickets = async () => {
       try {
@@ -69,31 +72,63 @@ export default function TimeTrackerPage() {
     loadTickets();
   }, [user]);
 
-  // Load existing time entries from localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setTimeEntries(parsed);
-        }
+    const loadTimeEntries = async () => {
+      try {
+        setIsLoadingEntries(true);
+        const data = await TimeTracker.listEntries();
+        setTimeEntries(Array.isArray(data) ? data : data?.results || []);
+      } catch (e) {
+        console.error('Failed loading time entries', e);
+        setTimeEntries([]);
+      } finally {
+        setIsLoadingEntries(false);
       }
-    } catch (e) {
-      console.warn('Failed to parse stored time entries', e);
-    }
-  }, []);
+    };
 
-  // Persist time entries
+    if (user?.role !== 'client') {
+      loadTimeEntries();
+    }
+  }, [user]);
+
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(timeEntries));
-    } catch (e) {
-      console.warn('Failed to persist time entries', e);
-    }
-  }, [timeEntries]);
+    const loadBudgets = async () => {
+      try {
+        setIsLoadingBudgets(true);
+        const data = await TimeTracker.listBudgets();
+        const budgets = Array.isArray(data) ? data : data?.results || [];
+        const budgetMap = {};
+        budgets.forEach(b => {
+          budgetMap[b.ticket] = b;
+        });
+        setTicketBudgets(budgetMap);
+      } catch (e) {
+        console.error('Failed loading budgets', e);
+      } finally {
+        setIsLoadingBudgets(false);
+      }
+    };
 
-  // Timer tick
+    if (user?.role === 'admin') {
+      loadBudgets();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const loadWarnings = async () => {
+      try {
+        const warnings = await TimeTracker.getBudgetWarnings();
+        setBudgetWarnings(warnings);
+      } catch (e) {
+        console.error('Failed loading budget warnings', e);
+      }
+    };
+
+    if (user?.role === 'admin') {
+      loadWarnings();
+    }
+  }, [user, ticketBudgets]);
+
   useEffect(() => {
     let interval;
     if (isTimerRunning) {
@@ -104,7 +139,6 @@ export default function TimeTrackerPage() {
     return () => interval && clearInterval(interval);
   }, [isTimerRunning]);
 
-  // Format seconds to HH:MM:SS
   const formatTimer = (seconds) => {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
@@ -112,7 +146,6 @@ export default function TimeTrackerPage() {
     return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
   };
 
-  // Convert HH:MM:SS to decimal hours
   const convertToHours = (timeString) => {
     const parts = timeString.split(':');
     const hours = parseInt(parts[0] || 0);
@@ -127,7 +160,6 @@ export default function TimeTrackerPage() {
       setTimerSeconds(0);
       setIsTimerRunning(true);
     } else {
-      // Stop and fill with HH:MM:SS format
       if (timerSeconds > 0) {
         const formatted = formatTimer(timerSeconds);
         setTimeSpent(formatted);
@@ -137,40 +169,50 @@ export default function TimeTrackerPage() {
     }
   };
 
-  const handleManualTimeEntry = () => {
-    if (!selectedTicket || !timeSpent) return;
-    const ticketObj = tickets.find(t => String(t.id) === String(selectedTicket));
+  const handleManualTimeEntry = async () => {
+    if (!selectedTicket || !timeSpent || isSaving) return;
     
-    // Convert time to hours for storage
-    const hoursSpent = parseFloat(convertToHours(timeSpent));
-    
-    const entry = {
-      id: crypto.randomUUID(),
+    try {
+      setIsSaving(true);
+      const hoursSpent = parseFloat(convertToHours(timeSpent));
       
-      ticketId: String(selectedTicket),
-      ticketTitle: ticketObj?.title || `Ticket ${selectedTicket}`,
-      description: description || 'Time entry',
-      timeSpent: hoursSpent, // Store as decimal hours
-      timeFormatted: timeSpent, // Store formatted time for display
-      date: new Date().toISOString(),
-      user: user?.full_name || user?.email || 'Unknown'
-    };
-    
-    setTimeEntries(prev => [entry, ...prev]);
-    setDescription('');
-    setTimeSpent('');
-    setSelectedTicket('');
-    setIsTimerRunning(false);
-    setTimerSeconds(0);
+      const entry = await TimeTracker.createEntry({
+        ticket: parseInt(selectedTicket),
+        description: description || 'Time entry',
+        time_spent: hoursSpent,
+        time_formatted: timeSpent,
+        date: new Date().toISOString()
+      });
+      
+      setTimeEntries(prev => [entry, ...prev]);
+      setDescription('');
+      setTimeSpent('');
+      setSelectedTicket('');
+      setIsTimerRunning(false);
+      setTimerSeconds(0);
+    } catch (error) {
+      console.error('Failed to create time entry:', error);
+      alert('Failed to save time entry. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDeleteEntry = (id) => {
-    setTimeEntries(prev => prev.filter(e => e.id !== id));
+  const handleDeleteEntry = async (id) => {
+    if (!confirm('Delete this time entry?')) return;
+    
+    try {
+      await TimeTracker.deleteEntry(id);
+      setTimeEntries(prev => prev.filter(e => e.id !== id));
+    } catch (error) {
+      console.error('Failed to delete entry:', error);
+      alert('Failed to delete entry. Please try again.');
+    }
   };
-// ADD: start / cancel / save edit helpers
+
   const startEditEntry = (entry) => {
     setEditingEntryId(entry.id);
-    setEditingTime(entry.timeFormatted || formatTimer(Math.round(entry.timeSpent * 3600)));
+    setEditingTime(entry.time_formatted);
     setEditingDescription(entry.description);
     setEditError('');
   };
@@ -182,157 +224,155 @@ export default function TimeTrackerPage() {
     setEditError('');
   };
 
-  const saveEditEntry = () => {
+  const saveEditEntry = async () => {
     if (!editingEntryId) return;
     if (!/^\d{2}:\d{2}:\d{2}$/.test(editingTime)) {
       setEditError('Invalid time format (HH:MM:SS)');
       return;
     }
-    const newHours = parseFloat(convertToHours(editingTime));
-    setTimeEntries(prev =>
-      prev.map(e =>
-        e.id === editingEntryId
-          ? { ...e, timeFormatted: editingTime, timeSpent: newHours, description: editingDescription }
-          : e
-      )
-    );
-    cancelEditEntry();
+    
+    try {
+      const newHours = parseFloat(convertToHours(editingTime));
+      const updated = await TimeTracker.updateEntry(editingEntryId, {
+        time_formatted: editingTime,
+        time_spent: newHours,
+        description: editingDescription
+      });
+      
+      setTimeEntries(prev =>
+        prev.map(e => e.id === editingEntryId ? updated : e)
+      );
+      cancelEditEntry();
+    } catch (error) {
+      console.error('Failed to update entry:', error);
+      setEditError('Failed to save changes');
+    }
   };
 
-  // Load budgets from localStorage
-  useEffect(() => {
+  const handleSetBudget = async () => {
+    if (!budgetTicketId || !budgetHours) return;
+    
     try {
-      const raw = localStorage.getItem('auradesk_ticket_budgets_v1');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setTicketBudgets(parsed);
+      const budget = await TimeTracker.createBudget({
+        ticket: parseInt(budgetTicketId),
+        budget_hours: parseFloat(budgetHours)
+      });
+      
+      setTicketBudgets(prev => ({
+        ...prev,
+        [budgetTicketId]: budget
+      }));
+      
+      setShowBudgetModal(false);
+      setBudgetTicketId('');
+      setBudgetHours('');
+    } catch (error) {
+      console.error('Failed to create budget:', error);
+      alert('Failed to set budget. Please try again.');
+    }
+  };
+
+  const handleRemoveBudget = async (ticketId) => {
+    if (!confirm('Remove budget for this ticket?')) return;
+    
+    try {
+      const budget = ticketBudgets[ticketId];
+      if (budget?.id) {
+        await TimeTracker.deleteBudget(budget.id);
+        setTicketBudgets(prev => {
+          const updated = { ...prev };
+          delete updated[ticketId];
+          return updated;
+        });
       }
-    } catch (e) {
-      console.warn('Failed to parse ticket budgets', e);
+    } catch (error) {
+      console.error('Failed to delete budget:', error);
+      alert('Failed to remove budget. Please try again.');
     }
-  }, []);
+  };
 
-  // Persist budgets
-  useEffect(() => {
+  const getBudgetWarning = (ticketId) => {
+  const budget = ticketBudgets[ticketId];
+  if (!budget) return null;
+  
+  // Parse all numeric fields to ensure they're numbers
+  const remainingHours = parseFloat(budget.remaining_hours);
+  const percentageUsed = parseFloat(budget.percentage_used);
+  const isOverBudget = budget.is_over_budget === true || budget.is_over_budget === 'true';
+  const isNearLimit = budget.is_near_limit === true || budget.is_near_limit === 'true';
+  
+  if (isOverBudget) {
+    return {
+      type: 'danger',
+      message: `Over budget by ${Math.abs(remainingHours).toFixed(2)}h`,
+      color: 'text-red-600 bg-red-50 border-red-200'
+    };
+  }
+  
+  if (isNearLimit) {
+    return {
+      type: 'warning',
+      message: `${percentageUsed.toFixed(0)}% of budget used`,
+      color: 'text-amber-600 bg-amber-50 border-amber-200'
+    };
+  }
+  
+  return {
+    type: 'info',
+    message: `${remainingHours.toFixed(2)}h remaining`,
+    color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
+  };
+};
+
+  const getTotalHours = () =>
+    timeEntries.reduce((sum, e) => sum + parseFloat(e.time_spent || 0), 0).toFixed(2);
+
+  const downloadCSV = async () => {
     try {
-      localStorage.setItem('auradesk_ticket_budgets_v1', JSON.stringify(ticketBudgets));
-    } catch (e) {
-      console.warn('Failed to persist ticket budgets', e);
+      await TimeTracker.exportCSV();
+    } catch (error) {
+      console.error('Failed to export CSV:', error);
+      alert('Failed to export CSV. Please try again.');
     }
-  }, [ticketBudgets]);
+  };
 
-  // ADD: Calculate ticket usage and warnings
   const ticketStats = useMemo(() => {
     const stats = {};
     timeEntries.forEach(e => {
-      if (!stats[e.ticketId]) {
-        stats[e.ticketId] = {
-          ticketId: e.ticketId,
-          ticketTitle: e.ticketTitle,
+      const ticketId = String(e.ticket);
+      if (!stats[ticketId]) {
+        stats[ticketId] = {
+          ticketId,
+          ticketTitle: e.ticket_title || `Ticket ${ticketId}`,
           totalHours: 0,
           entries: []
         };
       }
-      stats[e.ticketId].totalHours += e.timeSpent;
-      stats[e.ticketId].entries.push(e);
+      stats[ticketId].totalHours += parseFloat(e.time_spent || 0);
+      stats[ticketId].entries.push(e);
     });
 
-    // Add budget info
     Object.keys(stats).forEach(ticketId => {
       const budget = ticketBudgets[ticketId];
       if (budget) {
-        stats[ticketId].budget = parseFloat(budget);
-        stats[ticketId].percentage = (stats[ticketId].totalHours / parseFloat(budget)) * 100;
-        stats[ticketId].remaining = parseFloat(budget) - stats[ticketId].totalHours;
-        stats[ticketId].isOverBudget = stats[ticketId].totalHours > parseFloat(budget);
-        stats[ticketId].isNearLimit = stats[ticketId].percentage >= 80 && !stats[ticketId].isOverBudget;
+        // Parse all numeric values
+        stats[ticketId].budget = parseFloat(budget.budget_hours);
+        stats[ticketId].totalSpent = parseFloat(budget.total_spent);
+        stats[ticketId].percentage = parseFloat(budget.percentage_used);
+        stats[ticketId].remaining = parseFloat(budget.remaining_hours);
+        stats[ticketId].isOverBudget = budget.is_over_budget === true || budget.is_over_budget === 'true';
+        stats[ticketId].isNearLimit = budget.is_near_limit === true || budget.is_near_limit === 'true';
       }
     });
 
     return stats;
   }, [timeEntries, ticketBudgets]);
 
-  const handleSetBudget = () => {
-    if (!budgetTicketId || !budgetHours) return;
-    setTicketBudgets(prev => ({
-      ...prev,
-      [budgetTicketId]: budgetHours
-    }));
-    setShowBudgetModal(false);
-    setBudgetTicketId('');
-    setBudgetHours('');
-  };
-
-  const handleRemoveBudget = (ticketId) => {
-    setTicketBudgets(prev => {
-      const updated = { ...prev };
-      delete updated[ticketId];
-      return updated;
-    });
-  };
-
-  const getBudgetWarning = (ticketId) => {
-    const stat = ticketStats[ticketId];
-    if (!stat?.budget) return null;
-    
-    if (stat.isOverBudget) {
-      return {
-        type: 'danger',
-        message: `Over budget by ${Math.abs(stat.remaining).toFixed(2)}h`,
-        color: 'text-red-600 bg-red-50 border-red-200'
-      };
-    }
-    
-    if (stat.isNearLimit) {
-      return {
-        type: 'warning',
-        message: `${stat.percentage.toFixed(0)}% of budget used`,
-        color: 'text-amber-600 bg-amber-50 border-amber-200'
-      };
-    }
-    
-    return {
-      type: 'info',
-      message: `${stat.remaining.toFixed(2)}h remaining`,
-      color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
-    };
-  };
-
-  const getTotalHours = () =>
-    timeEntries.reduce((sum, e) => sum + e.timeSpent, 0).toFixed(2);
-
-  // CSV export
-  const downloadCSV = () => {
-    if (!timeEntries.length) return;
-    const headers = ['Ticket ID','Ticket Title','Description','Time (HH:MM:SS)','Hours','Date','User'];
-    const rows = timeEntries.map(e => [
-      e.ticketId,
-      e.ticketTitle,
-      (e.description || '').replace(/"/g,'""'),
-      e.timeFormatted || formatTimer(e.timeSpent * 3600),
-      e.timeSpent,
-      new Date(e.date).toISOString(),
-      e.user
-    ]);
-    const csv = [
-      headers.join(','),
-      ...rows.map(r => r.map(f => `"${String(f)}"`).join(','))
-    ].join('\r\n');
-    const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `time_entries_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Derived analytics
   const dayMap = useMemo(() => {
     const map = {};
     timeEntries.forEach(e => {
       const d = new Date(e.date).toISOString().split('T')[0];
-      map[d] = (map[d] || 0) + e.timeSpent;
+      map[d] = (map[d] || 0) + parseFloat(e.time_spent || 0);
     });
     return map;
   }, [timeEntries]);
@@ -362,6 +402,7 @@ export default function TimeTrackerPage() {
       return m+1;
     });
   };
+  
   const prevMonth = () => {
     setCalMonth(m => {
       if (m === 0) { setCalYear(y => y-1); return 11; }
@@ -376,7 +417,10 @@ export default function TimeTrackerPage() {
 
   const ticketHours = useMemo(() => {
     const map = {};
-    timeEntries.forEach(e => { map[e.ticketTitle] = (map[e.ticketTitle] || 0) + e.timeSpent; });
+    timeEntries.forEach(e => { 
+      const title = e.ticket_title || `Ticket ${e.ticket}`;
+      map[title] = (map[title] || 0) + parseFloat(e.time_spent || 0);
+    });
     return Object.entries(map).map(([name,hours]) => ({ name, hours }));
   }, [timeEntries]);
 
@@ -384,19 +428,18 @@ export default function TimeTrackerPage() {
     () => ticketHours.slice().sort((a,b)=>b.hours - a.hours).slice(0,5),
     [ticketHours]
   );
-// ADD: filtered entries
+
   const filteredEntries = useMemo(() => {
     return timeEntries.filter(e => {
       const txt = filterText.trim().toLowerCase();
       const matchesText =
         !txt ||
-        e.ticketTitle.toLowerCase().includes(txt) ||
+        (e.ticket_title || '').toLowerCase().includes(txt) ||
         e.description.toLowerCase().includes(txt);
-      const matchesTicket = !filterTicketId || e.ticketId === filterTicketId;
+      const matchesTicket = !filterTicketId || String(e.ticket) === filterTicketId;
       return matchesText && matchesTicket;
     });
   }, [timeEntries, filterText, filterTicketId]);
-
 
   const avgHoursPerLoggedDay = useMemo(() => {
     if (!dayHoursChart.length) return 0;
@@ -405,7 +448,7 @@ export default function TimeTrackerPage() {
 
   const pieColors = ['#6366F1','#10B981','#F59E0B','#EF4444','#8B5CF6','#06B6D4'];
 
-  if (isLoadingTickets) {
+  if (isLoadingTickets || isLoadingEntries) {
     return (
       <div className="w-full px-6 py-8">
         <div className="max-w-6xl mx-auto flex items-center justify-center h-64">
@@ -415,10 +458,23 @@ export default function TimeTrackerPage() {
     );
   }
 
+  if (user?.role === 'client') {
+    return (
+      <div className="w-full px-6 py-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-xl p-12 text-center">
+            <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Access Restricted</h2>
+            <p className="text-slate-600">Time tracking is only available for staff members.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full px-6 py-8">
       <section className="max-w-6xl mx-auto space-y-8">
-        {/* Header */}
         <header className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-xl shadow-slate-200/30 px-8 py-6 flex items-center gap-6">
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br ${theme.primary} shadow-lg ${theme.shadow}`}>
             <Clock className="w-7 h-7 text-white" />
@@ -437,7 +493,6 @@ export default function TimeTrackerPage() {
           </div>
         </header>
 
-        {/* Tabs */}
         <div className="flex gap-4">
           {[
             { id:'entries', label:'Entries', icon:Clock },
@@ -460,28 +515,24 @@ export default function TimeTrackerPage() {
           ))}
         </div>
 
-        {/* Entries */}
         {activeTab==='entries' && (
           <>
-            {/* Budget Warning Banner */}
-            {Object.keys(ticketStats).some(id => ticketStats[id].isOverBudget || ticketStats[id].isNearLimit) && (
+            {budgetWarnings.length > 0 && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <h3 className="text-sm font-bold text-amber-900 mb-2">Budget Alerts</h3>
                     <div className="space-y-1 text-sm text-amber-800">
-                      {Object.values(ticketStats)
-                        .filter(s => s.isOverBudget || s.isNearLimit)
-                        .map(stat => (
-                          <div key={stat.ticketId}>
-                            <strong>#{stat.ticketId}</strong> {stat.ticketTitle}: {' '}
-                            {stat.isOverBudget 
-                              ? `Over budget by ${Math.abs(stat.remaining).toFixed(2)}h`
-                              : `${stat.percentage.toFixed(0)}% used (${stat.remaining.toFixed(2)}h remaining)`
-                            }
-                          </div>
-                        ))}
+                      {budgetWarnings.map((warning, idx) => (
+                        <div key={idx}>
+                          <strong>#{warning.ticket_id}</strong> {warning.ticket_title}: {' '}
+                          {warning.type === 'over_budget' 
+                            ? `Over budget by ${warning.overage.toFixed(2)}h`
+                            : `${warning.percentage.toFixed(0)}% used (${warning.remaining.toFixed(2)}h remaining)`
+                          }
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -508,7 +559,7 @@ export default function TimeTrackerPage() {
                       return (
                         <option key={t.id} value={t.id}>
                           #{t.id} - {t.title}
-                          {hasBudget && stat ? ` (${stat.totalHours.toFixed(2)}/${ticketBudgets[String(t.id)]}h)` : ''}
+                          {hasBudget && stat ? ` (${stat.totalSpent?.toFixed(2)}/${hasBudget.budget_hours}h)` : ''}
                         </option>
                       );
                     })}
@@ -582,11 +633,20 @@ export default function TimeTrackerPage() {
 
                 <button
                   onClick={handleManualTimeEntry}
-                  disabled={!selectedTicket || !timeSpent || isTimerRunning}
+                  disabled={!selectedTicket || !timeSpent || isTimerRunning || isSaving}
                   className={`w-full py-4 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold flex items-center justify-center gap-2 shadow-lg ${theme.shadow} hover:opacity-90 disabled:opacity-50`}
                 >
-                  <Plus className="w-5 h-5" />
-                  Log Time Entry
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-5 h-5" />
+                      Log Time Entry
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -606,7 +666,6 @@ export default function TimeTrackerPage() {
                 </button>
               </div>
 
-              {/* Filters */}
               <div className="flex flex-wrap gap-3 mb-5">
                 <input
                   type="text"
@@ -651,15 +710,15 @@ export default function TimeTrackerPage() {
                     >
                       <div className="flex-1 w-full">
                         <div className="flex items-center gap-3 mb-2">
-                          <span className="text-sm font-bold text-slate-800">#{entry.ticketId}</span>
+                          <span className="text-sm font-bold text-slate-800">#{entry.ticket}</span>
                           <span className="text-slate-600 font-semibold truncate max-w-xs">
-                            {entry.ticketTitle}
+                            {entry.ticket_title || `Ticket ${entry.ticket}`}
                           </span>
-                          {getBudgetWarning(entry.ticketId) && (
-                            <span className={`text-[10px] px-2 py-1 rounded-lg border font-medium ${getBudgetWarning(entry.ticketId).color}`}>
-                              {getBudgetWarning(entry.ticketId).type === 'danger' ? '⚠️' : ''}
-                              {getBudgetWarning(entry.ticketId).type === 'warning' ? '⚡' : ''}
-                              {getBudgetWarning(entry.ticketId).message}
+                          {getBudgetWarning(String(entry.ticket)) && (
+                            <span className={`text-[10px] px-2 py-1 rounded-lg border font-medium ${getBudgetWarning(String(entry.ticket)).color}`}>
+                              {getBudgetWarning(String(entry.ticket)).type === 'danger' ? '⚠️' : ''}
+                              {getBudgetWarning(String(entry.ticket)).type === 'warning' ? '⚡' : ''}
+                              {getBudgetWarning(String(entry.ticket)).message}
                             </span>
                           )}
                         </div>
@@ -684,7 +743,7 @@ export default function TimeTrackerPage() {
                             <Calendar className="w-3 h-3" />
                             {new Date(entry.date).toLocaleDateString()}
                           </span>
-                          <span>{entry.user}</span>
+                          <span>{entry.user_name || entry.user_email}</span>
                           {editingEntryId === entry.id && editError && (
                             <span className="text-red-600 font-medium">{editError}</span>
                           )}
@@ -708,9 +767,9 @@ export default function TimeTrackerPage() {
                         ) : (
                           <div className="flex flex-col items-end">
                             <div className={`px-4 py-2 rounded-xl bg-gradient-to-r ${theme.primary} text-white font-bold font-mono`}>
-                              {entry.timeFormatted || formatTimer(Math.round(entry.timeSpent * 3600))}
+                              {entry.time_formatted}
                             </div>
-                            <span className="text-xs text-slate-500 mt-1">{entry.timeSpent}h</span>
+                            <span className="text-xs text-slate-500 mt-1">{parseFloat(entry.time_spent).toFixed(2)}h</span>
                           </div>
                         )}
 
@@ -753,7 +812,6 @@ export default function TimeTrackerPage() {
           </>
         )}
 
-        {/* Calendar Tab - existing code */}
         {activeTab==='calendar' && (
           <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8">
             <div className="flex items-center justify-between mb-6">
@@ -819,7 +877,6 @@ export default function TimeTrackerPage() {
           </div>
         )}
 
-        {/* Analytics Tab - existing code */}
         {activeTab==='analytics' && (
           <div className="rounded-2xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8 space-y-10">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
@@ -902,8 +959,7 @@ export default function TimeTrackerPage() {
           </div>
         )}
 
-        {/* NEW: Budgets Tab */}
-        {activeTab==='budgets' && (
+        {activeTab==='budgets' && user?.role === 'admin' && (
           <div className="rounded-3xl border border-slate-200/60 bg-white/80 backdrop-blur-xl shadow-lg p-8">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-3">
@@ -928,7 +984,11 @@ export default function TimeTrackerPage() {
               <div className="space-y-4">
                 {Object.entries(ticketBudgets).map(([ticketId, budget]) => {
                   const stat = ticketStats[ticketId];
-                  const percentage = stat ? (stat.totalHours / parseFloat(budget)) * 100 : 0;
+                  const percentage = parseFloat(budget.percentage_used) || 0; // ← Add parseFloat
+                  const remainingHours = parseFloat(budget.remaining_hours) || 0; // ← Add this
+                  const totalSpent = parseFloat(budget.total_spent) || 0; // ← Add this
+                  const budgetHours = parseFloat(budget.budget_hours) || 0; // ← Add this
+                  
                   return (
                     <div
                       key={ticketId}
@@ -939,11 +999,11 @@ export default function TimeTrackerPage() {
                           <div className="flex items-center gap-3 mb-2">
                             <span className="text-sm font-bold text-slate-800">#{ticketId}</span>
                             <span className="text-slate-700 font-semibold">
-                              {stat?.ticketTitle || 'Unknown Ticket'}
+                              {budget.ticket_title || 'Unknown Ticket'}
                             </span>
                           </div>
                           <div className="text-sm text-slate-500">
-                            Budget: {budget}h
+                            Budget: {budgetHours.toFixed(2)}h
                           </div>
                         </div>
                         <button
@@ -954,53 +1014,49 @@ export default function TimeTrackerPage() {
                         </button>
                       </div>
 
-                      {stat && (
-                        <>
-                          <div className="mb-3">
-                            <div className="flex items-center justify-between text-sm mb-2">
-                              <span className="font-medium text-slate-700">
-                                {stat.totalHours.toFixed(2)}h logged
-                              </span>
-                              <span className={`font-bold ${
-                                percentage > 100 ? 'text-red-600' :
-                                percentage >= 80 ? 'text-amber-600' :
-                                'text-emerald-600'
-                              }`}>
-                                {percentage.toFixed(0)}%
-                              </span>
-                            </div>
-                            <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${
-                                  percentage > 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
-                                  percentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
-                                  'bg-gradient-to-r from-emerald-500 to-emerald-600'
-                                }`}
-                                style={{ width: `${Math.min(percentage, 100)}%` }}
-                              />
-                            </div>
-                          </div>
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between text-sm mb-2">
+                          <span className="font-medium text-slate-700">
+                            {totalSpent.toFixed(2)}h logged
+                          </span>
+                          <span className={`font-bold ${
+                            percentage > 100 ? 'text-red-600' :
+                            percentage >= 80 ? 'text-amber-600' :
+                            'text-emerald-600'
+                          }`}>
+                            {percentage.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              percentage > 100 ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                              percentage >= 80 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                              'bg-gradient-to-r from-emerald-500 to-emerald-600'
+                            }`}
+                            style={{ width: `${Math.min(percentage, 100)}%` }}
+                          />
+                        </div>
+                      </div>
 
-                          {stat.isOverBudget && (
-                            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
-                              <AlertTriangle className="w-4 h-4" />
-                              Over budget by {Math.abs(stat.remaining).toFixed(2)}h
-                            </div>
-                          )}
+                      {budget.is_over_budget && (
+                        <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          Over budget by {Math.abs(remainingHours).toFixed(2)}h
+                        </div>
+                      )}
 
-                          {stat.isNearLimit && (
-                            <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm flex items-center gap-2">
-                              <AlertTriangle className="w-4 h-4" />
-                              {stat.remaining.toFixed(2)}h remaining ({percentage.toFixed(0)}% used)
-                            </div>
-                          )}
+                      {budget.is_near_limit && !budget.is_over_budget && (
+                        <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          {remainingHours.toFixed(2)}h remaining ({percentage.toFixed(0)}% used)
+                        </div>
+                      )}
 
-                          {!stat.isOverBudget && !stat.isNearLimit && (
-                            <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
-                              {stat.remaining.toFixed(2)}h remaining
-                            </div>
-                          )}
-                        </>
+                      {!budget.is_over_budget && !budget.is_near_limit && (
+                        <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
+                          {remainingHours.toFixed(2)}h remaining
+                        </div>
                       )}
                     </div>
                   );
@@ -1011,7 +1067,6 @@ export default function TimeTrackerPage() {
         )}
       </section>
 
-      {/* Budget Modal */}
       {showBudgetModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
